@@ -1,0 +1,13 @@
+diff --git a/scripts/eval_extract_features.py b/scripts/eval_extract_features.py
+index 5f29e34..7f9229c 100644
+--- a/scripts/eval_extract_features.py
++++ b/scripts/eval_extract_features.py
+@@ -79,7 +79,7 @@ net_list = [
+     ('swav','avgpool')
+     ]
+ 
+-device = 1
++device = 0  # upstream used GPU 1; choose the physical GPU with CUDA_VISIBLE_DEVICES
+ net = None
+ batchsize=64
+ 

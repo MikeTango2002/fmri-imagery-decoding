@@ -1,0 +1,23 @@
+{
+  "s1k": {
+    "n": 1000,
+    "cos_draws": 0.20274313736365812,
+    "two_way": 0.9997897897897897,
+    "cos_reencoded_vs_stored": 0.20320388844535092,
+    "std_stored": 0.5585839553966429,
+    "std_reencoded": 0.560155700108772,
+    "cos_ceiling_perfect_decoder": 0.4502700715833311
+  },
+  "imagery12": {
+    "n": 12,
+    "cos_draws": 0.12684639181540133,
+    "two_way": 0.9545454545454546,
+    "cos_ceiling_perfect_decoder": 0.3561550109368129
+  },
+  "imagery18": {
+    "n": 18,
+    "cos_draws": 0.10604236902126687,
+    "two_way": 0.8790849673202614,
+    "cos_ceiling_perfect_decoder": 0.32564147312844977
+  }
+}

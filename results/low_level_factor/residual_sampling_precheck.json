@@ -1,0 +1,56 @@
+{
+  "subj01": {
+    "n_dev": 500,
+    "resid_var_mean": 0.40846998730646705,
+    "fraction_variance_already_in_pred_mmse": 0.005845779865364165,
+    "pixcorr_control": 0.28837478094138624,
+    "pixcorr_treatment": 0.10131563152075529,
+    "ssim_control": 0.2678126960855706,
+    "ssim_treatment": 0.09795692017454785,
+    "win_pixcorr": false,
+    "win_ssim": false,
+    "win_both": false
+  },
+  "subj02": {
+    "n_dev": 500,
+    "resid_var_mean": 0.4062050026263291,
+    "fraction_variance_already_in_pred_mmse": 0.005271302679866752,
+    "pixcorr_control": 0.25503963435216986,
+    "pixcorr_treatment": 0.097033134458137,
+    "ssim_control": 0.23378599095489094,
+    "ssim_treatment": 0.0948637683454246,
+    "win_pixcorr": false,
+    "win_ssim": false,
+    "win_both": false
+  },
+  "subj05": {
+    "n_dev": 500,
+    "resid_var_mean": 0.4094928258440378,
+    "fraction_variance_already_in_pred_mmse": 0.0031167945148334875,
+    "pixcorr_control": 0.20167144665775744,
+    "pixcorr_treatment": 0.0628286447523601,
+    "ssim_control": 0.18134290223702312,
+    "ssim_treatment": 0.06491811714725511,
+    "win_pixcorr": false,
+    "win_ssim": false,
+    "win_both": false
+  },
+  "subj07": {
+    "n_dev": 500,
+    "resid_var_mean": 0.40708433793058274,
+    "fraction_variance_already_in_pred_mmse": 0.0023891849456296743,
+    "pixcorr_control": 0.20593169547342835,
+    "pixcorr_treatment": 0.09225535677071564,
+    "ssim_control": 0.190023226839084,
+    "ssim_treatment": 0.08893668100908667,
+    "win_pixcorr": false,
+    "win_ssim": false,
+    "win_both": false
+  },
+  "gate": {
+    "n_subj_win_both_metrics": 0,
+    "n_subj": 4,
+    "criterion": "treatment (sample_residual) must not lose on PixCorr AND SSIM together on >=3/4 subjects (decision rule fixed before the run)",
+    "proceed_to_gpu_branch": false
+  }
+}

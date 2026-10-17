@@ -1,0 +1,40 @@
+{
+  "n_blocks_kept": 65,
+  "n_cells": 3120,
+  "absolute_H0": {
+    "primary_mean": 0.8165702677684294,
+    "PixCorr": 0.20198587259615386,
+    "SSIM": 0.37309530625000004,
+    "AlexNet(2)": 0.7937501258012821,
+    "AlexNet(5)": 0.837318013701923,
+    "InceptionV3": 0.8139861247596154,
+    "CLIP": 0.8212268068108974,
+    "EffNet-B": 0.744184133573718,
+    "SwAV": 0.4435142665865385
+  },
+  "absolute_I3K64": {
+    "primary_mean": 0.8209500009615385,
+    "PixCorr": 0.23857355641025643,
+    "SSIM": 0.33185052980769236,
+    "AlexNet(2)": 0.8154430147435898,
+    "AlexNet(5)": 0.8500001192307693,
+    "InceptionV3": 0.8116551227564103,
+    "CLIP": 0.8067017471153848,
+    "EffNet-B": 0.7397588798076923,
+    "SwAV": 0.45207363397435896
+  },
+  "primary_mean_delta": {
+    "axis": "I3K64_minus_H0",
+    "metric": "primary_mean",
+    "point": 0.4379733193108975,
+    "ci_lo": 0.1107133771534456,
+    "ci_hi": 0.7708695842848557,
+    "n_clusters": 65,
+    "unit": "pp",
+    "lower_is_better": 0
+  },
+  "floor_pp": 0.399,
+  "zero_excluded": true,
+  "above_floor": true,
+  "verdict": "PASS"
+}

@@ -1,0 +1,75 @@
+diff --git a/src/train_autoencoder.py b/src/train_autoencoder.py
+index 57252bf..1266cc8 100755
+--- a/src/train_autoencoder.py
++++ b/src/train_autoencoder.py
+@@ -67,7 +67,19 @@ autoenc = AutoencoderKL(
+     layers_per_block=2,
+     sample_size=256
+ )
+-autoenc.load_state_dict(torch.load('../train_logs/models/sd_image_var_autoenc.pth'))
++# The checkpoint (from pscotti/mindeyev2) was saved with a newer diffusers whose
++# attention weights are named to_q/to_k/to_v/to_out.0, while the diffusers pinned here
++# (0.13.0 upstream, 0.14.0 in our environment) expects query/key/value/proj_attn.
++# Remap the mid_block attention keys.
++_ckpt = torch.load('../train_logs/models/sd_image_var_autoenc.pth')
++_rename = {'.to_q.': '.query.', '.to_k.': '.key.', '.to_v.': '.value.', '.to_out.0.': '.proj_attn.'}
++def _fix_key(k):
++    for old, new in _rename.items():
++        if old in k:
++            return k.replace(old, new)
++    return k
++_ckpt = {_fix_key(k): v for k, v in _ckpt.items()}
++autoenc.load_state_dict(_ckpt)
+ autoenc.requires_grad_(False)
+ autoenc.eval()
+ 
+@@ -181,14 +193,17 @@ except:
+ 
+ if local_rank == 0: print('Pulling NSD webdataset data...')
+ 
+-train_url = f"{{/fsx/proj-fmri/shared/natural-scenes-dataset/webdataset_avg_split/train/train_subj{subj_id}_{{0..17}}.tar,/fsx/proj-fmri/shared/natural-scenes-dataset/webdataset_avg_split/val/val_subj{subj_id}_0.tar}}"
+-val_url = f"/fsx/proj-fmri/shared/natural-scenes-dataset/webdataset_avg_split/test/test_subj{subj_id}_{{0..1}}.tar"
+-meta_url = f"/fsx/proj-fmri/shared/natural-scenes-dataset/webdataset_avg_split/metadata_subj{subj_id}.json"
++train_url = f"{{cache/webdataset_avg_split/train/train_subj{subj_id}_{{0..17}}.tar,cache/webdataset_avg_split/val/val_subj{subj_id}_0.tar}}"
++val_url = f"cache/webdataset_avg_split/test/test_subj{subj_id}_{{0..1}}.tar"
++meta_url = f"cache/webdataset_avg_split/metadata_subj{subj_id}.json"
+ 
+ if local_rank == 0: print('Prepping train and validation dataloaders...')
+ num_train = 8559 + 300
+ num_val = 982
+ 
++# webdataset requires the cache dir to already exist (it raises ValueError otherwise)
++os.makedirs('tmp/wds-cache', exist_ok=True)
++
+ train_dl, val_dl, num_train, num_val = utils.get_dataloaders(
+     batch_size,
+     num_devices=num_devices,
+@@ -197,7 +212,7 @@ train_dl, val_dl, num_train, num_val = utils.get_dataloaders(
+     val_url=val_url,
+     meta_url=meta_url,
+     val_batch_size=max(16, batch_size),
+-    cache_dir='/tmp/wds-cache',
++    cache_dir='tmp/wds-cache',
+     seed=seed+local_rank,
+     voxels_key='nsdgeneral.npy',
+     local_rank=local_rank,
+@@ -277,19 +292,6 @@ mean = torch.tensor([0.485, 0.456, 0.406]).to(device).reshape(1,3,1,1)
+ std = torch.tensor([0.228, 0.224, 0.225]).to(device).reshape(1,3,1,1)
+ epoch = 0
+ 
+-if ckpt_path is not None:
+-    print("\n---resuming from ckpt_path---\n",ckpt_path)
+-    checkpoint = torch.load(ckpt_path, map_location=device)
+-    epoch = checkpoint['epoch']+1
+-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])        
+-    voxel2sd.module.load_state_dict(checkpoint['model_state_dict'])
+-    global_batch_size = batch_size * num_devices
+-    total_steps_done = epoch*(num_train//global_batch_size)
+-    for _ in range(total_steps_done):
+-        lr_scheduler.step()
+-    del checkpoint
+-    torch.cuda.empty_cache()
+-
+ progress_bar = tqdm(range(epoch, num_epochs), ncols=150, disable=(local_rank!=0))
+ 
+ for epoch in progress_bar:

@@ -1,0 +1,116 @@
+diff --git a/codes/utils/identification.py b/codes/utils/identification.py
+index 3808aed..dafff38 100755
+--- a/codes/utils/identification.py
++++ b/codes/utils/identification.py
+@@ -1,7 +1,65 @@
+ import argparse
++import csv
++import os
++import time
+ import numpy as np
+ from tqdm import tqdm
+ 
++CSV_FIELDS = ['subject', 'method', 'usefeat', 'nimage', 'acc', 'acc_sem',
++              'acc_per_image', 'timestamp']
++# Column order of Table 1 in the technical report, so the CSV can be read side by side.
++FEAT_ORDER = ['inception', 'alexnet5', 'alexnet12', 'alexnet18',
++              'clip', 'clip_h6', 'clip_h12']
++
++def save_results(outpath, subject, method, usefeat, nimage, acc_mean, acc_sem, acc_all):
++    """Persist the accuracy next to the printed line. Purely additive: nothing here
++    touches the numbers computed above, it only writes them where a later run can read
++    them back. The row key is (subject, method, usefeat, nimage), so re-evaluating the
++    same configuration overwrites its own row instead of piling up duplicates."""
++    outdir = os.path.dirname(os.path.abspath(outpath))
++    os.makedirs(outdir, exist_ok=True)
++
++    accname = f'acc_{method}_{subject}_{usefeat}_n{nimage}.npy'
++    np.save(f'{outdir}/{accname}', acc_all)
++
++    row = {
++        'subject': subject,
++        'method': method,
++        'usefeat': usefeat,
++        'nimage': str(nimage),
++        'acc': f'{acc_mean:.06f}',
++        'acc_sem': f'{acc_sem:.06f}',
++        'acc_per_image': accname,
++        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
++    }
++
++    rows = []
++    if os.path.exists(outpath):
++        with open(outpath, newline='') as f:
++            for old in csv.DictReader(f):
++                same = (old.get('subject') == row['subject']
++                        and old.get('method') == row['method']
++                        and old.get('usefeat') == row['usefeat']
++                        and old.get('nimage') == row['nimage'])
++                if not same:
++                    rows.append(old)
++    rows.append(row)
++
++    def sortkey(r):
++        feat = r.get('usefeat', '')
++        rank = FEAT_ORDER.index(feat) if feat in FEAT_ORDER else len(FEAT_ORDER)
++        return (r.get('method', ''), r.get('subject', ''), rank, feat)
++
++    rows.sort(key=sortkey)
++
++    with open(outpath, 'w', newline='') as f:
++        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS, restval='',
++                                extrasaction='ignore')
++        writer.writeheader()
++        writer.writerows(rows)
++
++    print(f'saved {outpath} ({len(rows)} rows) and {accname}')
++
+ def load_feat_org(imgid, subject, method, usefeat):
+     featdir = f'../../identification/{method}/{subject}/'
+     feat = np.load(f'{featdir}/{imgid:05}_org_{usefeat}.npy').flatten().squeeze()
+@@ -39,12 +97,28 @@ def main():
+         type=str,
+         help="cvpr or text or gan or depth",
+     )
++    parser.add_argument(
++        "--nimage",
++        type=int,
++        default=982,
++        help="evaluate on the first N test images instead of all 982; the metric is a mean "
++             "over distractors, so a subset is an unbiased (just noisier) estimate of the "
++             "full-set accuracy. Default reproduces upstream exactly.",
++    )
++    parser.add_argument(
++        "--out",
++        type=str,
++        default="../../results/identification.csv",
++        help="CSV collecting the accuracies (one row per subject/method/usefeat/nimage); "
++             "the per-image accuracy vector is saved as a .npy next to it. Pass an empty "
++             "string to disable and keep the upstream stdout-only behaviour.",
++    )
+ 
+     opt = parser.parse_args()
+     usefeat = opt.usefeat
+     subject = opt.subject
+     method = opt.method
+-    nimage = 982
++    nimage = opt.nimage
+ 
+     # Load all images
+     print("Now Loading all images......")
+@@ -87,7 +161,14 @@ def main():
+         acc_all.append(sum(acc)/len(acc))
+     acc_all = np.array(acc_all)
+ 
+-    print(f'{subject}_{usefeat}:\t ACC = {np.mean(acc_all):.03} ')
++    acc_mean = float(np.mean(acc_all))
++    # Spread over test images: with nimage < 982 this is what quantifies the extra noise.
++    acc_sem = float(np.std(acc_all, ddof=1) / np.sqrt(len(acc_all))) if len(acc_all) > 1 else float('nan')
++
++    print(f'{subject}_{usefeat}:\t ACC = {acc_mean:.03} (SEM {acc_sem:.03}, n={nimage})')
++
++    if opt.out:
++        save_results(opt.out, subject, method, usefeat, nimage, acc_mean, acc_sem, acc_all)
+ 
+ if __name__ == "__main__":
+     main()

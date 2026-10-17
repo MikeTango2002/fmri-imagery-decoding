@@ -1,0 +1,128 @@
+diff --git a/config/deeprecon_pyfastl2lir_alpha100_vgg19_allunits.yaml b/config/deeprecon_pyfastl2lir_alpha100_vgg19_allunits.yaml
+index 48c5a8f..1746217 100644
+--- a/config/deeprecon_pyfastl2lir_alpha100_vgg19_allunits.yaml
++++ b/config/deeprecon_pyfastl2lir_alpha100_vgg19_allunits.yaml
+@@ -10,12 +10,12 @@ decoder:
+   fmri:
+     name: ImageNetTraining_fmriprep_volume_native_vc
+     subjects:
+-      #- name: sub-01
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-01_${decoder.fmri.name}.h5
+-      #- name: sub-02
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-02_${decoder.fmri.name}.h5
++      - name: sub-01
++        paths:
++          - ./data/fmri/Deeprecon/sub-01_${decoder.fmri.name}.h5
++      - name: sub-02
++        paths:
++          - ./data/fmri/Deeprecon/sub-02_${decoder.fmri.name}.h5
+       - name: sub-03
+         paths:
+           - ./data/fmri/Deeprecon/sub-03_${decoder.fmri.name}.h5
+@@ -37,22 +37,22 @@ decoder:
+     paths:
+       - ./data/features/ImageNetTraining/${decoder.features.name}
+     layers:
+-      #- conv1_1
+-      #- conv1_2
+-      #- conv2_1
+-      #- conv2_2
+-      #- conv3_1
+-      #- conv3_2
+-      #- conv3_3
+-      #- conv3_4
+-      #- conv4_1
+-      #- conv4_2
+-      #- conv4_3
+-      #- conv4_4
+-      #- conv5_1
+-      #- conv5_2
+-      #- conv5_3
+-      #- conv5_4
++      - conv1_1
++      - conv1_2
++      - conv2_1
++      - conv2_2
++      - conv3_1
++      - conv3_2
++      - conv3_3
++      - conv3_4
++      - conv4_1
++      - conv4_2
++      - conv4_3
++      - conv4_4
++      - conv5_1
++      - conv5_2
++      - conv5_3
++      - conv5_4
+       - fc6
+       - fc7
+       - fc8
+@@ -70,12 +70,12 @@ decoded_feature:
+   fmri:
+     name: ImageNetTest_fmriprep_volume_native_vc
+     subjects:
+-      #- name: sub-01
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-01_${decoded_feature.fmri.name}.h5
+-      #- name: sub-02
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-02_${decoded_feature.fmri.name}.h5
++      - name: sub-01
++        paths:
++          - ./data/fmri/Deeprecon/sub-01_${decoded_feature.fmri.name}.h5
++      - name: sub-02
++        paths:
++          - ./data/fmri/Deeprecon/sub-02_${decoded_feature.fmri.name}.h5
+       - name: sub-03
+         paths:
+           - ./data/fmri/Deeprecon/sub-03_${decoded_feature.fmri.name}.h5
+@@ -91,29 +91,29 @@ decoded_feature:
+       #- {name: HVC, select: ROI_HVC = 1}
+       - {name: VC,  select: ROI_VC = 1}
+     label_key: stimulus_name
+-    exclude_labels:
++    exclude_labels: []
+ 
+   features:
+     name: caffe/VGG19
+     paths:
+       - ./data/features/ImageNetTest/${decoded_feature.features.name}
+     layers:
+-      #- conv1_1
+-      #- conv1_2
+-      #- conv2_1
+-      #- conv2_2
+-      #- conv3_1
+-      #- conv3_2
+-      #- conv3_3
+-      #- conv3_4
+-      #- conv4_1
+-      #- conv4_2
+-      #- conv4_3
+-      #- conv4_4
+-      #- conv5_1
+-      #- conv5_2
+-      #- conv5_3
+-      #- conv5_4
++      - conv1_1
++      - conv1_2
++      - conv2_1
++      - conv2_2
++      - conv3_1
++      - conv3_2
++      - conv3_3
++      - conv3_4
++      - conv4_1
++      - conv4_2
++      - conv4_3
++      - conv4_4
++      - conv5_1
++      - conv5_2
++      - conv5_3
++      - conv5_4
+       - fc6
+       - fc7
+       - fc8

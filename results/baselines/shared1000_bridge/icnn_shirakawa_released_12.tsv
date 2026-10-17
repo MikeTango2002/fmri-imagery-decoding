@@ -1,0 +1,9 @@
+metric	scope	mean	se	n
+PixCorr	all100	0.426561	0.051956	12
+SSIM	all100	0.362937	0.060931	12
+EffNet-B	all100	0.833425	0.033863	12
+SwAV	all100	0.532891	0.016549	12
+AlexNet(2)	pools12	0.878788	nan	1
+AlexNet(5)	pools12	0.893939	nan	1
+InceptionV3	pools12	0.780303	nan	1
+CLIP	pools12	0.636364	nan	1

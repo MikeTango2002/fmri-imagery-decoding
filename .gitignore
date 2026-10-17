@@ -1,0 +1,8 @@
+# Hugging Face token read by trisect/download_data_from_internet.sh
+HF_thesis_token.txt
+
+# Data, working folder and environments (see README.md)
+work/
+trisect/data/
+.venv*/
+__pycache__/

@@ -1,0 +1,13 @@
+diff --git a/codes/diffusion_sd2/stablediffusion/ldm/models/diffusion/ddpm.py b/codes/diffusion_sd2/stablediffusion/ldm/models/diffusion/ddpm.py
+index 3350c03..1fda8b8 100644
+--- a/codes/diffusion_sd2/stablediffusion/ldm/models/diffusion/ddpm.py
++++ b/codes/diffusion_sd2/stablediffusion/ldm/models/diffusion/ddpm.py
+@@ -17,7 +17,7 @@ from functools import partial
+ import itertools
+ from tqdm import tqdm
+ from torchvision.utils import make_grid
+-from pytorch_lightning.utilities.distributed import rank_zero_only
++from pytorch_lightning.utilities.rank_zero import rank_zero_only  # PL>=1.8: moved out of .utilities.distributed
+ from omegaconf import ListConfig
+ 
+ from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config

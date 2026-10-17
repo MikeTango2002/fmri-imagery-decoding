@@ -1,0 +1,15 @@
+diff --git a/codes/caption/BLIP/models/blip.py b/codes/caption/BLIP/models/blip.py
+index 38678f6..2e05092 100644
+--- a/codes/caption/BLIP/models/blip.py
++++ b/codes/caption/BLIP/models/blip.py
+@@ -184,7 +184,9 @@ def blip_feature_extractor(pretrained='',**kwargs):
+     return model        
+ 
+ def init_tokenizer():
+-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
++    _here = os.path.dirname(os.path.abspath(__file__))
++    cache_dir = os.path.normpath(os.path.join(_here, '..', '..', '..', '..', 'cache', 'huggingface'))
++    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', cache_dir=cache_dir)
+     tokenizer.add_special_tokens({'bos_token':'[DEC]'})
+     tokenizer.add_special_tokens({'additional_special_tokens':['[ENC]']})       
+     tokenizer.enc_token_id = tokenizer.additional_special_tokens_ids[0]  

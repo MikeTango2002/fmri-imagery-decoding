@@ -1,0 +1,514 @@
+diff --git a/src/Train.py b/src/Train.py
+index d231c34..7ee8889 100644
+--- a/src/Train.py
++++ b/src/Train.py
+@@ -206,6 +206,53 @@ parser.add_argument(
+ parser.add_argument(
+     "--max_lr",type=float,default=3e-4,
+ )
++parser.add_argument( # [pixcorr-stride]
++    "--pixcorr_stride",type=int,default=1,
++    help="compute the blurry_pixcorr diagnostic every N steps instead of every step. "
++         "The diagnostic runs under no_grad, feeds no loss and only lands in the log dict, "
++         "so striding it changes nothing about the trained model -- but it decodes 8 images "
++         "through the SD VAE per step, ~12%% of the FLOPs once --frozen_cache is on. "
++         "Default 1 = upstream behaviour; the thesis runs use 10.",
++)
++parser.add_argument( # [ckpt-slim]
++    "--ckpt_slim",action=argparse.BooleanOptionalAction,default=False,
++    help="omit optimizer_state_dict from the checkpoint (~15 GB of the ~20 GB file at "
++         "hidden_dim=4096). Nothing in this pipeline ever reads it back: the only load_ckpt "
++         "call site passes load_optimizer=False, and recon_inference.py takes only "
++         "model_state_dict. Under ZeRO-2 the saved state is rank-0 partial anyway, so it "
++         "cannot drive an exact resume either. Default False = upstream behaviour.",
++)
++parser.add_argument( # [frozen-cache]
++    "--frozen_cache",type=str,default=None,dest="frozen_cache_path",
++    help="path to the hdf5 built by precompute_frozen.py. When given, the deterministic "
++         "frozen-encoder outputs (bigG clip_target / VAE image_enc / ConvNeXt cnx_embeds) are "
++         "read from it instead of being recomputed every epoch. Requires --no-use_image_aug. "
++         "Default None = upstream behaviour.",
++)
++parser.add_argument( # [grad-ckpt]
++    "--grad_checkpointing",type=str,default="",
++    help="comma-separated list of components to run under torch.utils.checkpoint "
++         "(use_reentrant=False): 'prior' (the 6 transformer layers of the diffusion prior -- "
++         "the only one that moves the needle), 'backbone' (the 4 mixer blocks), 'blurry' "
++         "(bupsampler + b_maps_projector), or 'all'. Empty = off = upstream behaviour. "
++         "Trades ~+25-35%% of step time for the activation term, which is the one that scales "
++         "with the batch; the gradients are unchanged (checkpoint preserves the RNG state, so "
++         "the dropout masks are the same on both passes).",
++)
++parser.add_argument( # [grad-accum]
++    "--grad_accum_steps",type=int,default=1,
++    help="number of micro-batches per optimizer update. MUST match the "
++         "gradient_accumulation_steps of the DeepSpeed config (asserted below): the engine is "
++         "what actually accumulates, this flag is what makes the epoch length, the OneCycleLR "
++         "horizon and the logging count UPDATES instead of micro-steps. 2 GPUs x 63 x 4 = the "
++         "paper's global batch of 504.",
++)
++parser.add_argument( # [mem-profile]
++    "--profile_memory",type=int,default=0,
++    help="diagnostic mode: run N training iterations, write a JSON with the memory and time "
++         "breakdown to ../train_logs/profiling/, and exit before the eval block. Also caps the "
++         "epoch to N+2 iterations so the bulk pre-load stays short. 0 = off (training mode).",
++)
+ 
+ if utils.is_interactive():
+     args = parser.parse_args(jupyter_args)
+@@ -257,12 +304,47 @@ if multi_subject:
+ else:
+     num_samples_per_epoch = (750*num_sessions) // num_devices 
+ 
+-print("dividing batch size by subj_list, which will then be concatenated across subj during training...") 
++print("dividing batch size by subj_list, which will then be concatenated across subj during training...")
+ batch_size = batch_size // len(subj_list)
+ 
+ num_iterations_per_epoch = num_samples_per_epoch // (batch_size*len(subj_list))
+ 
++# [grad-accum] The DeepSpeed engine is what accumulates; this block only makes the bookkeeping
++# agree with it. Getting it wrong is silent: the run completes and the LR schedule is wrong.
++#
++#   * the CLI value must equal the engine's, or one of the two is a lie -> assert it;
++#   * an epoch must contain a WHOLE number of updates, otherwise the accumulation window
++#     straddles the epoch boundary and its phase drifts by one every epoch (DeepSpeed counts
++#     micro-steps globally, it knows nothing about our epochs);
++#   * OneCycleLR is built on UPDATES (it takes num_updates_per_epoch below), so with
++#     gas>1 it must be given the updates, not the micro-steps, or the cycle ends gas times
++#     too early and the last 3/4 of training runs at final_div_factor lr.
++ds_gas = None
++_ds_plugin = getattr(accelerator.state, "deepspeed_plugin", None)
++if _ds_plugin is not None:
++    _v = _ds_plugin.deepspeed_config.get("gradient_accumulation_steps", 1)
++    ds_gas = int(_v) if str(_v).isdigit() else None
++assert grad_accum_steps >= 1, "--grad_accum_steps must be >= 1"
++assert ds_gas is None or ds_gas == grad_accum_steps, (
++    f"--grad_accum_steps={grad_accum_steps} but the DeepSpeed config says "
++    f"gradient_accumulation_steps={ds_gas}. The engine wins on what is accumulated and this "
++    f"script wins on the epoch/scheduler length: they must agree.")
++
++num_updates_per_epoch = num_iterations_per_epoch // grad_accum_steps
++assert num_updates_per_epoch >= 1, (
++    f"grad_accum_steps={grad_accum_steps} is larger than the {num_iterations_per_epoch} "
++    f"micro-steps an epoch has at batch_size={batch_size*len(subj_list)}")
++num_iterations_per_epoch = num_updates_per_epoch * grad_accum_steps
++
++if profile_memory: # [mem-profile] short epoch: the bulk pre-load is O(num_iterations_per_epoch)
++    num_iterations_per_epoch = max(grad_accum_steps,
++                                   ((profile_memory + 2) // grad_accum_steps) * grad_accum_steps)
++    num_updates_per_epoch = num_iterations_per_epoch // grad_accum_steps
++    print(f"[mem-profile] capping the epoch to {num_iterations_per_epoch} iterations")
++
+ print("batch_size =", batch_size, "num_iterations_per_epoch =",num_iterations_per_epoch, "num_samples_per_epoch =",num_samples_per_epoch)
++print("grad_accum_steps =", grad_accum_steps, "-> num_updates_per_epoch =", num_updates_per_epoch,
++      "| global batch per update =", batch_size*len(subj_list)*grad_accum_steps*world_size)
+ 
+ # In[7]:
+ 
+@@ -347,13 +429,27 @@ print("Loaded all 73k possible NSD images to cpu!", images.shape)
+ # In[9]:
+ 
+ 
+-clip_img_embedder = FrozenOpenCLIPImageEmbedder(
+-    arch="ViT-bigG-14",
+-    version="laion2b_s39b_b160k",
+-    output_tokens=True,
+-    only_tokens=True,
+-)
+-clip_img_embedder.to(device)
++# [frozen-cache] open the precomputed frozen-encoder outputs, if one was passed.
++frozen_cache = None
++if frozen_cache_path is not None:
++    assert not use_image_aug, "--frozen_cache assumes deterministic stimuli: use --no-use_image_aug"
++    from frozen_cache import FrozenCache
++    frozen_cache = FrozenCache(frozen_cache_path)
++    print("frozen cache:", frozen_cache)
++
++# [frozen-cache] with a complete clip cache the bigG tower is never called, so skip loading
++# its 1.8B parameters altogether (~7.4 GB of VRAM freed).
++if frozen_cache is not None and frozen_cache.has("clip"):
++    clip_img_embedder = None
++    print("frozen cache: skipping FrozenOpenCLIPImageEmbedder, clip_target served from cache")
++else:
++    clip_img_embedder = FrozenOpenCLIPImageEmbedder(
++        arch="ViT-bigG-14",
++        version="laion2b_s39b_b160k",
++        output_tokens=True,
++        only_tokens=True,
++    )
++    clip_img_embedder.to(device)
+ 
+ clip_seq_dim = 256
+ clip_emb_dim = 1664
+@@ -493,6 +589,22 @@ if use_prior:
+ # In[15]:
+ 
+ 
++# [grad-ckpt] wire the flag into the modules, after they all exist and before prepare().
++gc_parts = {p.strip() for p in grad_checkpointing.split(",") if p.strip()}
++if "all" in gc_parts:
++    gc_parts = {"prior", "backbone", "blurry"}
++_unknown = gc_parts - {"prior", "backbone", "blurry"}
++assert not _unknown, f"--grad_checkpointing: unknown component(s) {sorted(_unknown)}"
++if "backbone" in gc_parts:
++    model.backbone.ckpt_backbone = True
++if "blurry" in gc_parts:
++    assert blurry_recon, "--grad_checkpointing=blurry needs --blurry_recon"
++    model.backbone.ckpt_blurry = True
++if "prior" in gc_parts:
++    assert use_prior, "--grad_checkpointing=prior needs --use_prior"
++    model.diffusion_prior.net.causal_transformer.grad_checkpointing = True
++print("grad checkpointing:", sorted(gc_parts) if gc_parts else "off (upstream)")
++
+ no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+ 
+ opt_grouped_parameters = [
+@@ -508,14 +620,16 @@ if use_prior:
+ 
+ optimizer = torch.optim.AdamW(opt_grouped_parameters, lr=max_lr)
+ 
++# [grad-accum] num_updates_per_epoch == num_iterations_per_epoch when grad_accum_steps == 1,
++# so at gas=1 these two lines are exactly upstream.
+ if lr_scheduler_type == 'linear':
+     lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+         optimizer,
+-        total_iters=int(np.floor(num_epochs*num_iterations_per_epoch)),
++        total_iters=int(np.floor(num_epochs*num_updates_per_epoch)),
+         last_epoch=-1
+     )
+ elif lr_scheduler_type == 'cycle':
+-    total_steps=int(np.floor(num_epochs*num_iterations_per_epoch))
++    total_steps=int(np.floor(num_epochs*num_updates_per_epoch))
+     print("total_steps", total_steps)
+     lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
+         optimizer, 
+@@ -529,7 +643,7 @@ def save_ckpt(tag):
+     ckpt_path = outdir+f'/{tag}.pth'
+     if accelerator.is_main_process:
+         unwrapped_model = accelerator.unwrap_model(model)
+-        torch.save({
++        payload = {
+             'epoch': epoch,
+             'model_state_dict': unwrapped_model.state_dict(),
+             'optimizer_state_dict': optimizer.state_dict(),
+@@ -537,7 +651,14 @@ def save_ckpt(tag):
+             'train_losses': losses,
+             'test_losses': test_losses,
+             'lrs': lrs,
+-            }, ckpt_path)
++            }
++        if ckpt_slim: # [ckpt-slim] never read back, and rank-0 partial under ZeRO-2
++            del payload['optimizer_state_dict']
++        # [ckpt-slim] write-then-rename: save_ckpt always targets the same last.pth, so a
++        # crash mid-write used to leave no usable checkpoint at all after hours of training.
++        tmp_path = ckpt_path + '.tmp'
++        torch.save(payload, tmp_path)
++        os.replace(tmp_path, ckpt_path)
+     print(f"\n---saved {outdir}/{tag} ckpt!---\n")
+ 
+ def load_ckpt(tag,load_lr=True,load_optimizer=True,load_epoch=True,strict=True,outdir=outdir,multisubj_loading=False): 
+@@ -551,6 +672,11 @@ def load_ckpt(tag,load_lr=True,load_optimizer=True,load_epoch=True,strict=True,o
+         globals()["epoch"] = checkpoint['epoch']
+         print("Epoch",epoch)
+     if load_optimizer:
++        if 'optimizer_state_dict' not in checkpoint: # [ckpt-slim]
++            raise KeyError(
++                f"{outdir}/{tag}.pth was written with --ckpt_slim and carries no optimizer "
++                "state. Reload it with load_optimizer=False (what the --multisubject_ckpt "
++                "path already does), or re-train without --ckpt_slim.")
+         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+     if load_lr:
+         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+@@ -630,12 +756,64 @@ train_dls = [train_dl[f'subj0{s}'] for s in subj_list]
+ model, optimizer, *train_dls, lr_scheduler = accelerator.prepare(model, optimizer, *train_dls, lr_scheduler)
+ # leaving out test_dl since we will only have local_rank 0 device do evals
+ 
++# [grad-accum] Who is allowed to advance the LR scheduler?
++# accelerate wraps it on prepare(), and WHICH wrapper you get decides the answer:
++#   * DeepSpeedSchedulerWrapper.step() is a no-op -- the DeepSpeed engine steps the scheduler
++#     itself, once per optimizer update;
++#   * AcceleratedScheduler.step() steps the underlying scheduler num_processes times per call
++#     (it assumes one dataloader batch per process per call), and only when sync_gradients.
++# Either way calling `lr_scheduler.step()` once per micro-step -- what upstream does -- is
++# wrong as soon as grad_accum_steps > 1, and under the second wrapper it is wrong already at
++# gas=1 (2 processes = the OneCycleLR horizon consumed at twice the rate, so the cycle ends at
++# epoch 75 of 150 and the rest of the run trains at max_lr/1000). Both failures are silent.
++# So: hold the RAW torch scheduler, and step it exactly once per update, iff nobody else did.
++raw_lr_scheduler = getattr(lr_scheduler, "scheduler", lr_scheduler)
++sched_seen = getattr(raw_lr_scheduler, "_step_count", 0)
++sched_stepped_by_us = 0
++num_updates = 0
++
++def step_lr_scheduler():
++    global sched_seen, sched_stepped_by_us
++    count = getattr(raw_lr_scheduler, "_step_count", 0)
++    if count == sched_seen: # nobody advanced it since our last call -> it is on us
++        raw_lr_scheduler.step()
++        sched_stepped_by_us += 1
++    sched_seen = getattr(raw_lr_scheduler, "_step_count", 0)
++
++print("lr scheduler wrapper:", type(lr_scheduler).__name__, "-> raw:", type(raw_lr_scheduler).__name__)
++print("optimizer wrapper:", type(optimizer).__name__)
++
++# [mem-profile] separate the fixed cost (weights, gradients, optimizer state, frozen
++# encoders) from the part that scales with the batch (activations + workspace), by
++# measuring both at several batch sizes.
++# NOTE the snapshot below is taken after prepare() but BEFORE the first step, so it does NOT
++# yet contain the Adam moments: DeepSpeed allocates the fp32 partition at init but the
++# exp_avg/exp_avg_sq of the client AdamW appear on the first step(). The number to use as
++# "fixed cost" is per_iteration.persistent_MiB from iteration >= 2, not this one.
++prof_records = []
++prof_meta = {}
++if profile_memory:
++    torch.cuda.synchronize()
++    prof_meta = dict(
++        model_name=model_name, rank=local_rank, world_size=world_size,
++        batch_per_process=int(batch_size*len(subj_list)), batch_per_subject=int(batch_size),
++        n_subjects=len(subj_list), multi_subject=bool(multi_subject),
++        hidden_dim=int(hidden_dim), blurry_recon=bool(blurry_recon), use_prior=bool(use_prior),
++        grad_accum_steps=int(grad_accum_steps), grad_checkpointing=sorted(gc_parts),
++        pixcorr_stride=int(pixcorr_stride), frozen_cache=frozen_cache_path is not None,
++        num_params=int(num_params),
++        deepspeed_config=(_ds_plugin.deepspeed_config if _ds_plugin is not None else None),
++        alloc_after_prepare_MiB=torch.cuda.memory_allocated()/2**20,
++        reserved_after_prepare_MiB=torch.cuda.memory_reserved()/2**20,
++        torch_cuda_alloc_conf=os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""),
++    )
++
+ # In[20]:
+ 
+ 
+ print(f"{model_name} starting with epoch {epoch} / {num_epochs}")
+ progress_bar = tqdm(range(epoch,num_epochs), ncols=1200, disable=(local_rank!=0))
+-test_image, test_voxel = None, None
++test_image, test_voxel, test_image_idx = None, None, None # [frozen-cache] added test_image_idx
+ mse = nn.MSELoss()
+ l1 = nn.L1Loss()
+ soft_loss_temps = utils.cosine_anneal(0.004, 0.0075, num_epochs - int(mixup_pct * num_epochs))
+@@ -663,10 +841,17 @@ for epoch in progress_bar:
+ 
+     blurry_pixcorr = 0.
+     test_blurry_pixcorr = 0. # needs >.456 to beat low-level subj01 results in mindeye v1
++    # [pixcorr-stride] with --pixcorr_stride>1 the diagnostic is measured on a subset of the
++    # steps, so it needs its own counters instead of dividing by (train_i+1)/(test_i+1).
++    blurry_pixcorr_n = 0
++    test_blurry_pixcorr_n = 0
+ 
+     # pre-load all batches for this epoch (it's MUCH faster to pre-load in bulk than to separate loading per batch)
++    t_preload = time.time() # [mem-profile] this pre-load is serial and blocks the GPU
+     voxel_iters = {} # empty dict because diff subjects have differing # of voxels
+     image_iters = torch.zeros(num_iterations_per_epoch, batch_size*len(subj_list), 3, 224, 224).float()
++    # [frozen-cache] COCO index of every row of image_iters, used to look the cache up
++    image_idx_iters = torch.zeros(num_iterations_per_epoch, batch_size*len(subj_list), dtype=torch.long)
+     annot_iters = {}
+     perm_iters, betas_iters, select_iters = {}, {}, {}
+     for s, train_dl in enumerate(train_dls):
+@@ -679,6 +864,7 @@ for epoch in progress_bar:
+                 if len(image0) != len(image_idx): # hdf5 cant handle duplicate indexing
+                     continue
+                 iter += 1
++                image_idx_iters[iter,s*batch_size:s*batch_size+batch_size] = torch.from_numpy(image0) # [frozen-cache]
+                 image0 = torch.tensor(images[image0], dtype=data_type)
+                 image_iters[iter,s*batch_size:s*batch_size+batch_size] = image0
+                 
+@@ -700,7 +886,14 @@ for epoch in progress_bar:
+                     break
+ 
+     # you now have voxel_iters and image_iters with num_iterations_per_epoch batches each
++    t_preload = time.time() - t_preload # [mem-profile]
++    t_train = time.time()
+     for train_i in range(num_iterations_per_epoch):
++        if profile_memory: # [mem-profile]
++            torch.cuda.synchronize()
++            t_it = time.time()
++            mem_persistent = torch.cuda.memory_allocated()
++            torch.cuda.reset_peak_memory_stats()
+         with torch.cuda.amp.autocast(dtype=data_type):
+             optimizer.zero_grad()
+             loss=0.
+@@ -712,7 +905,10 @@ for epoch in progress_bar:
+             if use_image_aug: 
+                 image = img_augment(image)
+ 
+-            clip_target = clip_img_embedder(image)
++            if frozen_cache is not None and frozen_cache.has("clip"): # [frozen-cache]
++                clip_target = frozen_cache.get("clip", image_idx_iters[train_i]).to(device)
++            else:
++                clip_target = clip_img_embedder(image)
+             assert not torch.any(torch.isnan(clip_target))
+ 
+             if epoch < int(mixup_pct * num_epochs):
+@@ -762,7 +958,10 @@ for epoch in progress_bar:
+             if blurry_recon:     
+                 image_enc_pred, transformer_feats = blurry_image_enc_
+ 
+-                image_enc = autoenc.encode(2*image-1).latent_dist.mode() * 0.18215
++                if frozen_cache is not None and frozen_cache.has("vae"): # [frozen-cache]
++                    image_enc = frozen_cache.get("vae", image_idx_iters[train_i]).to(device)
++                else:
++                    image_enc = autoenc.encode(2*image-1).latent_dist.mode() * 0.18215
+                 loss_blurry = l1(image_enc_pred, image_enc)
+                 loss_blurry_total += loss_blurry.item()
+ 
+@@ -774,8 +973,11 @@ for epoch in progress_bar:
+ 
+                 image_norm = (image - mean)/std
+                 image_aug = (blur_augs(image) - mean)/std
+-                _, cnx_embeds = cnx(image_norm)
+-                _, cnx_aug_embeds = cnx(image_aug)
++                if frozen_cache is not None and frozen_cache.has("cnx"): # [frozen-cache]
++                    cnx_embeds = frozen_cache.get("cnx", image_idx_iters[train_i]).to(device)
++                else:
++                    _, cnx_embeds = cnx(image_norm)
++                _, cnx_aug_embeds = cnx(image_aug) # blur_augs is random -> never cacheable
+ 
+                 cont_loss = utils.soft_cont_loss(
+                     nn.functional.normalize(transformer_feats.reshape(-1, transformer_feats.shape[-1]), dim=-1),
+@@ -795,10 +997,15 @@ for epoch in progress_bar:
+             if blurry_recon:
+                 with torch.no_grad():
+                     # only doing pixcorr eval on a subset of the samples per batch because its costly & slow to compute autoenc.decode()
++                    # [pixcorr-stride] the draw stays unconditional so the numpy RNG stream is
++                    # identical to upstream whatever the stride (np.random is used nowhere else
++                    # in the loop -- mixco draws from torch), and only the decode is skipped.
+                     random_samps = np.random.choice(np.arange(len(image)), size=len(image)//5, replace=False)
+-                    blurry_recon_images = (autoenc.decode(image_enc_pred[random_samps]/0.18215).sample/ 2 + 0.5).clamp(0,1)
+-                    pixcorr = utils.pixcorr(image[random_samps], blurry_recon_images)
+-                    blurry_pixcorr += pixcorr.item()
++                    if train_i % pixcorr_stride == 0:
++                        blurry_recon_images = (autoenc.decode(image_enc_pred[random_samps]/0.18215).sample/ 2 + 0.5).clamp(0,1)
++                        pixcorr = utils.pixcorr(image[random_samps], blurry_recon_images)
++                        blurry_pixcorr += pixcorr.item()
++                        blurry_pixcorr_n += 1
+ 
+             utils.check_loss(loss)
+             accelerator.backward(loss)
+@@ -807,8 +1014,51 @@ for epoch in progress_bar:
+             losses.append(loss.item())
+             lrs.append(optimizer.param_groups[0]['lr'])
+ 
+-            if lr_scheduler_type is not None:
+-                lr_scheduler.step()
++            # [grad-accum] only the accumulation boundary is a real optimizer update, so only
++            # there may the LR advance. At gas=1 every iteration is a boundary, i.e. upstream.
++            if (train_i + 1) % grad_accum_steps == 0:
++                num_updates += 1
++                if lr_scheduler_type is not None:
++                    step_lr_scheduler()
++
++        if profile_memory: # [mem-profile]
++            torch.cuda.synchronize()
++            prof_records.append(dict(
++                epoch=int(epoch), it=int(train_i), sec=time.time()-t_it,
++                persistent_MiB=mem_persistent/2**20,
++                peak_alloc_MiB=torch.cuda.max_memory_allocated()/2**20,
++                peak_reserved_MiB=torch.cuda.max_memory_reserved()/2**20,
++                lr=optimizer.param_groups[0]['lr'], updates=int(num_updates)))
++            if len(prof_records) >= profile_memory:
++                break
++
++    if profile_memory: # [mem-profile] dump and stop before the eval block
++        import statistics
++        steady = prof_records[2:] or prof_records
++        prof_meta.update(
++            preload_sec=t_preload, train_sec=time.time()-t_train,
++            num_iterations_per_epoch=int(num_iterations_per_epoch),
++            num_updates_per_epoch=int(num_updates_per_epoch),
++            sched_stepped_by_us=int(sched_stepped_by_us),
++            sched_step_count=int(getattr(raw_lr_scheduler, "_step_count", -1)),
++            median_sec_per_it=statistics.median(r["sec"] for r in steady),
++            median_persistent_MiB=statistics.median(r["persistent_MiB"] for r in steady),
++            max_peak_alloc_MiB=max(r["peak_alloc_MiB"] for r in steady),
++            max_peak_reserved_MiB=max(r["peak_reserved_MiB"] for r in steady),
++            iterations=prof_records)
++        profdir = os.path.abspath('../train_logs/profiling')
++        os.makedirs(profdir, exist_ok=True)
++        with open(f"{profdir}/{model_name}_rank{local_rank}.json", "w") as fp:
++            json.dump(prof_meta, fp, indent=1, default=str)
++        print(f"\n[mem-profile] {model_name} rank{local_rank}: "
++              f"persistent {prof_meta['median_persistent_MiB']:.0f} MiB | "
++              f"peak alloc {prof_meta['max_peak_alloc_MiB']:.0f} MiB | "
++              f"peak reserved {prof_meta['max_peak_reserved_MiB']:.0f} MiB | "
++              f"{prof_meta['median_sec_per_it']:.3f} s/it | "
++              f"pre-load {t_preload:.1f} s for {num_iterations_per_epoch} iters")
++        print(f"[mem-profile] wrote {profdir}/{model_name}_rank{local_rank}.json")
++        accelerator.wait_for_everyone()
++        sys.exit(0)
+ 
+     model.eval()
+     if local_rank==0:
+@@ -837,6 +1087,7 @@ for epoch in progress_bar:
+                         else:
+                             test_image = torch.vstack((test_image, torch.Tensor(images[im][None])))
+                             test_voxel = torch.vstack((test_voxel, voxel[locs][None]))
++                    test_image_idx = unique_image # [frozen-cache] row i of test_image is COCO idx unique_image[i]
+ 
+                 loss=0.
+                             
+@@ -845,7 +1096,10 @@ for epoch in progress_bar:
+                 image = test_image[test_indices].to(device)
+                 assert len(image) == 300
+ 
+-                clip_target = clip_img_embedder(image.float())
++                if frozen_cache is not None and frozen_cache.has("clip"): # [frozen-cache]
++                    clip_target = frozen_cache.get("clip", test_image_idx[test_indices]).to(device)
++                else:
++                    clip_target = clip_img_embedder(image.float())
+ 
+                 for rep in range(3):
+                     voxel_ridge = model.ridge(voxel[:,rep],0) # 0th index of subj_list
+@@ -883,10 +1137,14 @@ for epoch in progress_bar:
+                     loss += loss_clip
+ 
+                 if blurry_recon:
++                    # [pixcorr-stride] here random_samps is NOT ours to skip -- it also indexes
++                    # the prior loss a few lines above -- so only the decode is gated.
+                     image_enc_pred, _ = blurry_image_enc_
+-                    blurry_recon_images = (autoenc.decode(image_enc_pred[random_samps]/0.18215).sample / 2 + 0.5).clamp(0,1)
+-                    pixcorr = utils.pixcorr(image[random_samps], blurry_recon_images)
+-                    test_blurry_pixcorr += pixcorr.item()
++                    if test_i % pixcorr_stride == 0:
++                        blurry_recon_images = (autoenc.decode(image_enc_pred[random_samps]/0.18215).sample / 2 + 0.5).clamp(0,1)
++                        pixcorr = utils.pixcorr(image[random_samps], blurry_recon_images)
++                        test_blurry_pixcorr += pixcorr.item()
++                        test_blurry_pixcorr_n += 1
+ 
+                 if clip_scale>0:
+                     # forward and backward top 1 accuracy        
+@@ -902,6 +1160,11 @@ for epoch in progress_bar:
+                 "test/loss": np.mean(test_losses[-(test_i+1):]),
+                 "train/lr": lrs[-1],
+                 "train/num_steps": len(losses),
++                # [grad-accum] micro-steps vs optimizer updates. At gas=1 they coincide.
++                # num_updates must equal (epoch+1)*num_updates_per_epoch, and sched_step_count
++                # must track it: if they drift, the OneCycleLR horizon is not what we think.
++                "train/num_updates": num_updates,
++                "train/sched_steps": getattr(raw_lr_scheduler, "_step_count", -1) - 1,
+                 "test/num_steps": len(test_losses),
+                 "train/fwd_pct_correct": fwd_percent_correct / (train_i + 1),
+                 "train/bwd_pct_correct": bwd_percent_correct / (train_i + 1),
+@@ -911,8 +1174,9 @@ for epoch in progress_bar:
+                 "train/loss_blurry_total": loss_blurry_total / (train_i + 1),
+                 "train/loss_blurry_cont_total": loss_blurry_cont_total / (train_i + 1),
+                 "test/loss_clip_total": test_loss_clip_total / (test_i + 1),
+-                "train/blurry_pixcorr": blurry_pixcorr / (train_i + 1),
+-                "test/blurry_pixcorr": test_blurry_pixcorr / (test_i + 1),
++                # [pixcorr-stride] measured on blurry_pixcorr_n steps, not on all of them
++                "train/blurry_pixcorr": blurry_pixcorr / max(blurry_pixcorr_n, 1),
++                "test/blurry_pixcorr": test_blurry_pixcorr / max(test_blurry_pixcorr_n, 1),
+                 "train/recon_cossim": recon_cossim / (train_i + 1),
+                 "test/recon_cossim": test_recon_cossim / (test_i + 1),
+                 "train/recon_mse": recon_mse / (train_i + 1),
+@@ -938,9 +1202,9 @@ for epoch in progress_bar:
+ 
+                     if wandb_log:
+                         logs[f"test/blur_recons"] = wandb.Image(fig, caption=f"epoch{epoch:03d}")
+-                        plt.close()
+-                    else:
+-                        plt.show()
++                    # upstream only closes the figure on the wandb branch, so a --no-wandb_log
++                    # run leaks one figure per ckpt_interval; plt.show() is a no-op headless.
++                    plt.close(fig)
+ 
+             progress_bar.set_postfix(**logs)
+ 

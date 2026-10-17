@@ -1,0 +1,21 @@
+{
+  "n_blocks": "83 (full shared1000 block set, no intersection with the Brain-Diffuser test images)",
+  "n_subjects": 4,
+  "gate": "PASS",
+  "primary_mean_null": {
+    "point": -0.19224643574297198,
+    "ci_lo": -0.39906101876255007,
+    "ci_hi": 0.015972666133282874
+  },
+  "generation_floor": {
+    "primary_mean": 0.39906101876255007,
+    "PixCorr": 0.003484277870858433,
+    "SSIM": 0.0009616306507279115,
+    "AlexNet(2)": 0.5225444132781125,
+    "AlexNet(5)": 0.71082672314257,
+    "InceptionV3": 0.40502955635040155,
+    "CLIP": 0.5122765712851405,
+    "EffNet-B": 0.003603248795180723,
+    "SwAV": 0.0021521352566516074
+  }
+}

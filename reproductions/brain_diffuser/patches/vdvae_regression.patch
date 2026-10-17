@@ -1,0 +1,11 @@
+diff --git a/scripts/vdvae_regression.py b/scripts/vdvae_regression.py
+index f9dbf2b..b8a180b 100644
+--- a/scripts/vdvae_regression.py
++++ b/scripts/vdvae_regression.py
+@@ -1,5 +1,6 @@
+ import sys
+ import numpy as np
++import pickle  # missing upstream: the last line calls pickle.dump, so the fitted decoder was lost with a NameError
+ import sklearn.linear_model as skl
+ import argparse
+ parser = argparse.ArgumentParser(description='Argument Parser')

@@ -1,0 +1,45 @@
+diff --git a/scripts/versatilediffusion_reconstruct_images.py b/scripts/versatilediffusion_reconstruct_images.py
+index b9b9f17..c8cdad3 100644
+--- a/scripts/versatilediffusion_reconstruct_images.py
++++ b/scripts/versatilediffusion_reconstruct_images.py
+@@ -74,10 +74,10 @@ sampler = sampler(net)
+ batch_size = 1
+ 
+ pred_text = np.load('data/predicted_features/subj{:02d}/nsd_cliptext_predtest_nsdgeneral.npy'.format(sub))
+-pred_text = torch.tensor(pred_text).half().cuda(1)
++pred_text = torch.tensor(pred_text).half().cuda(0)  # single GPU: upstream put these tensors on cuda(1)
+ 
+ pred_vision = np.load('data/predicted_features/subj{:02d}/nsd_clipvision_predtest_nsdgeneral.npy'.format(sub))
+-pred_vision = torch.tensor(pred_vision).half().cuda(1)
++pred_vision = torch.tensor(pred_vision).half().cuda(0)
+ 
+ 
+ n_samples = 1
+@@ -109,13 +109,13 @@ for im_id in range(len(pred_vision)):
+ 
+     dummy = ''
+     utx = net.clip_encode_text(dummy)
+-    utx = utx.cuda(1).half()
++    utx = utx.cuda(0).half()
+     
+     dummy = torch.zeros((1,3,224,224)).cuda(0)
+     uim = net.clip_encode_vision(dummy)
+-    uim = uim.cuda(1).half()
++    uim = uim.cuda(0).half()
+     
+-    z_enc = z_enc.cuda(1)
++    z_enc = z_enc.cuda(0)
+ 
+     h, w = 512,512
+     shape = [n_samples, 4, h//8, w//8]
+@@ -126,8 +126,8 @@ for im_id in range(len(pred_vision)):
+     #c[:,0] = u[:,0]
+     #z_enc = z_enc.cuda(1).half()
+     
+-    sampler.model.model.diffusion_model.device='cuda:1'
+-    sampler.model.model.diffusion_model.half().cuda(1)
++    sampler.model.model.diffusion_model.device='cuda:0'
++    sampler.model.model.diffusion_model.half().cuda(0)
+     #mixing = 0.4
+     
+     z = sampler.decode_dc(

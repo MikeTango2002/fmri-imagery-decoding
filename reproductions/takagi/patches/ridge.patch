@@ -1,0 +1,245 @@
+diff --git a/codes/utils/ridge.py b/codes/utils/ridge.py
+index 6e7bf33..034b2c6 100755
+--- a/codes/utils/ridge.py
++++ b/codes/utils/ridge.py
+@@ -1,4 +1,4 @@
+-import argparse, os
++import argparse, os, threading, time
+ import numpy as np
+ from himalaya.backend import set_backend
+ from himalaya.ridge import RidgeCV
+@@ -6,6 +6,119 @@ from himalaya.scoring import correlation_score
+ from sklearn.pipeline import make_pipeline
+ from sklearn.preprocessing import StandardScaler
+ 
++# ---------------------------------------------------------------------------
++# Progress logging (local addition, numerically inert).
++# Upstream prints nothing between the start of pipeline.fit() and its end, so a
++# multi-minute run looks dead: under `nohup ... > log` stdout is block-buffered
++# (the fd is a file, not a tty), so even the surrounding prints only reach the
++# log when the process exits. Everything below writes to stdout only -- alphas,
++# pipeline, solver and data are untouched.
++# ---------------------------------------------------------------------------
++
++_T0 = time.time()
++HEARTBEAT_SEC = float(os.environ.get('RIDGE_HEARTBEAT_SEC', 60))
++
++
++def log(msg):
++    """Timestamped log line, flushed immediately so a redirected log stays live."""
++    print(f'[{time.strftime("%H:%M:%S")} +{time.time() - _T0:7.1f}s] {msg}', flush=True)
++
++
++def rss_gb():
++    """Resident memory of this process, read from /proc (no psutil dependency)."""
++    try:
++        with open('/proc/self/statm') as f:
++            pages = int(f.read().split()[1])
++        return pages * os.sysconf('SC_PAGE_SIZE') / 2 ** 30
++    except OSError:
++        return float('nan')
++
++
++class Heartbeat:
++    """Print a keep-alive line every HEARTBEAT_SEC while a blocking call runs.
++
++    himalaya's SVD solver exposes no progress callback, so this is the only way
++    to tell a live fit from a hung one without patching the library.
++    """
++
++    def __init__(self, label, period=HEARTBEAT_SEC):
++        self.label = label
++        self.period = period
++        self._stop = threading.Event()
++        self._thread = threading.Thread(target=self._run, daemon=True)
++
++    def _run(self):
++        t0 = time.time()
++        while not self._stop.wait(self.period):
++            log(f'  ... {self.label} running: {time.time() - t0:.0f}s elapsed, RSS {rss_gb():.1f} GB')
++
++    def __enter__(self):
++        if self.period > 0:
++            self._thread.start()
++        return self
++
++    def __exit__(self, *exc):
++        self._stop.set()
++        if self._thread.is_alive():
++            self._thread.join(timeout=1.0)
++        return False
++
++
++def load(path):
++    """np.load(...).astype(float32) plus a log line with shape and size."""
++    log(f'loading {path}')
++    arr = np.load(path).astype("float32")
++    log(f'  -> shape {arr.shape}, {arr.nbytes / 2 ** 30:.2f} GB, RSS {rss_gb():.1f} GB')
++    return arr
++
++
++def save_weights(path, scaler, ridge, X_te, scores, **meta):
++    """Persist the fitted decoder so it can be applied to betas this run never saw.
++
++    Upstream only saves `scores`, i.e. the predictions on the 982 shared1000 test
++    images: the fitted pipeline dies with the process, so decoding any other betas
++    (NSD-Imagery) would require refitting. We write the two things a forward pass
++    needs -- the StandardScaler statistics and the ridge coefficients -- as a plain
++    .npz, deliberately not a pickle of the sklearn/himalaya objects, so loading it
++    later does not depend on those library versions still being installed.
++
++    Inference is then, with the ROIs hstacked in the order recorded in `roi`:
++        w = np.load(path)
++        pred = ((X - w['scaler_mean']) / w['scaler_scale']) @ w['coef'] + w['intercept']
++    """
++    coef = np.asarray(ridge.coef_)
++    n_features = scaler.mean_.shape[0]
++    if coef.shape[0] != n_features and coef.shape[1] == n_features:
++        # himalaya stores (n_features, n_targets); tolerate the other orientation.
++        log(f'  coef_ is {coef.shape}, transposing to match {n_features} features')
++        coef = coef.T
++    intercept = np.asarray(getattr(ridge, 'intercept_', np.float32(0.0)))
++
++    # Self-check: the arrays we are about to write must reproduce pipeline.predict()
++    # on the test set. If they do not, inference from disk would silently diverge
++    # from what this run just scored, which is exactly the failure we cannot afford.
++    manual = ((X_te - scaler.mean_) / scaler.scale_) @ coef + intercept
++    maxdiff = float(np.abs(manual - scores).max())
++    log(f'  weights self-check: max |from-disk - pipeline.predict| = {maxdiff:.3e}')
++    if not np.allclose(manual, scores, atol=1e-3, rtol=1e-3):
++        log('  WARNING: reconstructed predictions differ from pipeline.predict() -- '
++            'do NOT use these weights for inference before understanding why')
++
++    np.savez(path,
++             coef=coef.astype(np.float32),
++             intercept=intercept.astype(np.float32),
++             scaler_mean=scaler.mean_.astype(np.float32),
++             scaler_scale=scaler.scale_.astype(np.float32),
++             best_alphas=np.asarray(getattr(ridge, 'best_alphas_', [])),
++             selfcheck_maxdiff=np.float64(maxdiff),
++             roi=np.asarray(meta['roi']),
++             roi_sizes=np.asarray(meta['roi_sizes']),
++             subject=np.asarray(meta['subject']),
++             target=np.asarray(meta['target']),
++             alphas=np.asarray(meta['alphas']))
++    log(f'saved {path} ({os.path.getsize(path) / 2 ** 30:.2f} GB), coef {coef.shape}')
++
++
+ def main():
+ 
+     parser = argparse.ArgumentParser()
+@@ -29,6 +142,12 @@ def main():
+         default=None,
+         help="subject name: subj01 or subj02  or subj05  or subj07 for full-data subjects ",
+     )
++    parser.add_argument(
++        "--save_weights",
++        action="store_true",
++        help="also persist the fitted decoder (scaler stats + ridge coefficients) next to "
++             "the scores, so it can be applied to other betas (NSD-Imagery) without refitting",
++    )
+ 
+     opt = parser.parse_args()
+     target = opt.target
+@@ -44,42 +163,86 @@ def main():
+ 
+     ridge = RidgeCV(alphas=alpha)
+ 
++    # Same object as upstream, just bound to a name so its fitted statistics can be
++    # written out alongside the ridge coefficients (see save_weights below).
++    scaler = StandardScaler(with_mean=True, with_std=True)
+     preprocess_pipeline = make_pipeline(
+-        StandardScaler(with_mean=True, with_std=True),
++        scaler,
+     )
+     pipeline = make_pipeline(
+         preprocess_pipeline,
+         ridge,
+-    )    
++    )
+     mridir = f'../../mrifeat/{subject}/'
+     featdir = '../../nsdfeat/subjfeat/'
+     savedir = f'../..//decoded/{subject}/'
+     os.makedirs(savedir, exist_ok=True)
+ 
++    log(f'Now making decoding model for... {subject}:  {roi}, {target}')
++    log(f'alphas {alpha}, heartbeat every {HEARTBEAT_SEC:g}s (RIDGE_HEARTBEAT_SEC to change, 0 disables)')
++
+     X = []
+     X_te = []
+     for croi in roi:
+         if 'conv' in target: # We use averaged features for GAN due to large number of dimension of features
+-            cX = np.load(f'{mridir}/{subject}_{croi}_betas_ave_tr.npy').astype("float32")
++            cX = load(f'{mridir}/{subject}_{croi}_betas_ave_tr.npy')
+         else:
+-            cX = np.load(f'{mridir}/{subject}_{croi}_betas_tr.npy').astype("float32")
+-        cX_te = np.load(f'{mridir}/{subject}_{croi}_betas_ave_te.npy').astype("float32")
++            cX = load(f'{mridir}/{subject}_{croi}_betas_tr.npy')
++        cX_te = load(f'{mridir}/{subject}_{croi}_betas_ave_te.npy')
+         X.append(cX)
+         X_te.append(cX_te)
++    roi_sizes = [cX.shape[1] for cX in X]  # column block per ROI, for inference-time hstack
+     X = np.hstack(X)
+     X_te = np.hstack(X_te)
+-    
+-    Y = np.load(f'{featdir}/{subject}_each_{target}_tr.npy').astype("float32").reshape([X.shape[0],-1])
+-    Y_te = np.load(f'{featdir}/{subject}_ave_{target}_te.npy').astype("float32").reshape([X_te.shape[0],-1])
+-    
+-    print(f'Now making decoding model for... {subject}:  {roi}, {target}')
+-    print(f'X {X.shape}, Y {Y.shape}, X_te {X_te.shape}, Y_te {Y_te.shape}')
+-    pipeline.fit(X, Y)
+-    scores = pipeline.predict(X_te)
++
++    Y = load(f'{featdir}/{subject}_each_{target}_tr.npy').reshape([X.shape[0],-1])
++    Y_te = load(f'{featdir}/{subject}_ave_{target}_te.npy').reshape([X_te.shape[0],-1])
++
++    log(f'X {X.shape}, Y {Y.shape}, X_te {X_te.shape}, Y_te {Y_te.shape}')
++
++    log('pipeline.fit start (himalaya prints nothing on its own: see heartbeat below)')
++    t = time.time()
++    with Heartbeat('pipeline.fit'):
++        pipeline.fit(X, Y)
++    log(f'pipeline.fit done in {time.time() - t:.1f}s, RSS {rss_gb():.1f} GB')
++
++    best_alphas = getattr(ridge, 'best_alphas_', None)
++    if best_alphas is not None: # which alpha the CV picked, per target dimension
++        uniq, cnt = np.unique(np.asarray(best_alphas), return_counts=True)
++        log('selected alphas: ' + ', '.join(f'{a:g} x{c}' for a, c in zip(uniq, cnt)))
++
++    log('pipeline.predict start')
++    t = time.time()
++    with Heartbeat('pipeline.predict'):
++        scores = pipeline.predict(X_te)
++    log(f'pipeline.predict done in {time.time() - t:.1f}s -> scores {scores.shape}')
++
+     rs = correlation_score(Y_te.T,scores.T)
+-    print(f'Prediction accuracy is: {np.mean(rs):3.3}')
++    log(f'Prediction accuracy is: {np.mean(rs):3.3}')
++
++    # Weights first, scores second: `scores` is one predict() away from the weights,
++    # but the weights cannot be recovered from `scores` without refitting. If the
++    # disk fills up, lose the cheap artifact.
++    if opt.save_weights:
++        save_weights(f'{savedir}/{subject}_{"_".join(roi)}_weights_{target}.npz',
++                     scaler, ridge, X_te, scores,
++                     subject=subject, roi=roi, roi_sizes=roi_sizes, target=target,
++                     alphas=alpha)
++
++    outpath = f'{savedir}/{subject}_{"_".join(roi)}_scores_{target}.npy'
++    try:
++        np.save(outpath,scores)
++        log(f'saved {outpath} ({os.path.getsize(outpath) / 2 ** 30:.2f} GB), total {time.time() - _T0:.1f}s')
++    except Exception:
++        # Remove the truncated .npy so a later np.load fails loudly instead of
++        # silently reading a half-written array.
++        import traceback
++        if os.path.exists(outpath):
++            os.remove(outpath)
++        log('ERROR: could not save scores (weights are on disk); traceback follows')
++        traceback.print_exc()
+ 
+-    np.save(f'{savedir}/{subject}_{"_".join(roi)}_scores_{target}.npy',scores)
++    log(f'all done, total {time.time() - _T0:.1f}s')
+ 
+ if __name__ == "__main__":
+     main()

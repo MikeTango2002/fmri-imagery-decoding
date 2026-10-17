@@ -1,0 +1,127 @@
+diff --git a/src/models.py b/src/models.py
+index 50493f0..c483c02 100755
+--- a/src/models.py
++++ b/src/models.py
+@@ -3,6 +3,7 @@ import numpy as np
+ from torchvision import transforms
+ import torch
+ import torch.nn as nn
++from torch.utils.checkpoint import checkpoint  # [grad-ckpt]
+ import PIL
+ import clip
+ from functools import partial
+@@ -20,6 +21,11 @@ class BrainNetwork(nn.Module):
+         self.clip_size = clip_size
+         self.blurry_recon = blurry_recon
+         self.clip_scale = clip_scale
++        # [grad-ckpt] set from Train.py via --grad_checkpointing. Off = upstream behaviour,
++        # byte for byte. On, the forward of the wrapped block is recomputed during backward
++        # instead of keeping its activations: same gradients, less memory, more FLOPs.
++        self.ckpt_backbone = False
++        self.ckpt_blurry = False
+         self.mixer_blocks1 = nn.ModuleList([
+             self.mixer_block1(h, drop) for _ in range(n_blocks)
+         ])
+@@ -85,22 +91,47 @@ class BrainNetwork(nn.Module):
+             self.mlp(seq_len, seq_len, drop)  # Channel mixing
+         )
+         
++    def _mixer_step(self, block1, block2, x, residual1, residual2): # [grad-ckpt]
++        # Exactly the body of one iteration of the mixer loop below, factored out so that
++        # torch.utils.checkpoint can recompute it. Keep the two in sync.
++        x = block1(x) + residual1
++        residual1 = x
++        x = x.permute(0,2,1)
++
++        x = block2(x) + residual2
++        residual2 = x
++        x = x.permute(0,2,1)
++        return x, residual1, residual2
++
++    def _blurry_head(self, b): # [grad-ckpt]
++        b_aux = self.b_maps_projector(b).flatten(2).permute(0,2,1)
++        b_aux = b_aux.view(len(b_aux), 49, 512)
++        return self.bupsampler(b), b_aux
++
+     def forward(self, x):
+         # make empty tensors
+         c,b = torch.Tensor([0.]), torch.Tensor([[0.],[0.]])
+-        
++
++        # [grad-ckpt] recompute only when there is a graph to save memory for
++        ckpt_on = self.training and torch.is_grad_enabled()
++
+         # Mixer blocks
+         residual1 = x
+         residual2 = x.permute(0,2,1)
+         for block1, block2 in zip(self.mixer_blocks1,self.mixer_blocks2):
++            if self.ckpt_backbone and ckpt_on: # [grad-ckpt]
++                x, residual1, residual2 = checkpoint(
++                    self._mixer_step, block1, block2, x, residual1, residual2,
++                    use_reentrant=False)
++                continue
+             x = block1(x) + residual1
+             residual1 = x
+             x = x.permute(0,2,1)
+-            
++
+             x = block2(x) + residual2
+             residual2 = x
+             x = x.permute(0,2,1)
+-            
++
+         x = x.reshape(x.size(0), -1)
+         backbone = self.backbone_linear(x).reshape(len(x), -1, self.clip_size)
+         if self.clip_scale>0:
+@@ -111,10 +142,13 @@ class BrainNetwork(nn.Module):
+             b = self.bdropout(b)
+             b = b.reshape(b.shape[0], -1, 7, 7).contiguous()
+             b = self.bnorm(b)
+-            b_aux = self.b_maps_projector(b).flatten(2).permute(0,2,1)
+-            b_aux = b_aux.view(len(b_aux), 49, 512)
+-            b = (self.bupsampler(b), b_aux)
+-        
++            if self.ckpt_blurry and ckpt_on: # [grad-ckpt]
++                b = checkpoint(self._blurry_head, b, use_reentrant=False)
++            else:
++                b_aux = self.b_maps_projector(b).flatten(2).permute(0,2,1)
++                b_aux = b_aux.view(len(b_aux), 49, 512)
++                b = (self.bupsampler(b), b_aux)
++
+         return backbone, c, b
+     
+ class Clipper(torch.nn.Module):
+@@ -560,6 +594,18 @@ class FlaggedCausalTransformer(nn.Module):
+ 
+         self.norm = LayerNorm(dim, stable = True) if norm_out else nn.Identity()  # unclear in paper whether they projected after the classic layer norm for the final denoised image embedding, or just had the transformer output it directly: plan on offering both options
+         self.project_out = nn.Linear(dim, dim, bias = False) if final_proj else nn.Identity()
++        # [grad-ckpt] set from Train.py via --grad_checkpointing=prior. This is the block that
++        # matters: 6 layers over 513 tokens (256 brain + 1 time + 256 image) at dim 1664, whose
++        # attention matrices are [heads=32, 513, 514] and are kept THREE times per layer (fp16
++        # sim, fp32 softmax output, fp16 cast back) -- ~65 MB per sample per layer, i.e. the
++        # dominant term of the ~1.2 GB/sample measured for the stage-1 configuration. attn_dropout and
++        # ff_dropout are both 0 here, so nothing random is recomputed.
++        self.grad_checkpointing = False
++
++    def _block(self, attn, ff, x, attn_bias): # [grad-ckpt]
++        x = attn(x, attn_bias = attn_bias) + x
++        x = ff(x) + x
++        return x
+ 
+     def forward(self, x):
+         n, device = x.shape[1], x.device
+@@ -568,7 +614,14 @@ class FlaggedCausalTransformer(nn.Module):
+ 
+         attn_bias = self.rel_pos_bias(n, n + 1, device = device)
+ 
++        # [grad-ckpt] attn_bias is passed as an explicit checkpoint input, not captured by a
++        # closure: it carries the gradient of rel_pos_bias's embedding weights.
++        ckpt_on = self.grad_checkpointing and self.training and torch.is_grad_enabled()
++
+         for attn, ff in self.layers:
++            if ckpt_on: # [grad-ckpt]
++                x = checkpoint(self._block, attn, ff, x, attn_bias, use_reentrant=False)
++                continue
+             x = attn(x, attn_bias = attn_bias) + x
+             x = ff(x) + x
+ 

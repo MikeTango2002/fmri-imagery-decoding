@@ -1,0 +1,34 @@
+# DeepSpeed ZeRO stage 2 on 2 GPUs, optimizer on GPU, with 4 gradient accumulation steps.
+#
+# A plain ZeRO-2 configuration plus one line: 2 processes x 63 samples x 4 accumulation steps = 504, the 8 x 63 of
+# the paper. It is equivalent, not an approximation: the model has no BatchNorm and the two contrastive losses use
+# in-batch negatives with no cross-device gather; the loss of a process depends only on its own micro-batch.
+# DeepSpeed divides the loss by gradient_accumulation_steps in engine.backward() and ZeRO's reduce averages across
+# ranks; the training loop scales nothing.
+#
+# What must move with this flag, all in Train.py and marked [grad-accum]: (1) --grad_accum_steps=4, which Train.py
+# asserts against this file; (2) the epoch rounded to a whole number of updates, and the accumulation window never
+# straddles an epoch (DeepSpeed counts micro-steps globally); (3) OneCycleLR built on updates and advanced once per
+# update, not per micro-step. Getting that wrong is silent: the cycle would end at epoch 37 of 150 and the rest
+# would train at max_lr/1000.
+
+compute_environment: LOCAL_MACHINE
+deepspeed_config:
+  gradient_accumulation_steps: 4
+  offload_optimizer_device: none
+  offload_param_device: none
+  zero3_init_flag: false
+  zero_stage: 2
+distributed_type: DEEPSPEED
+downcast_bf16: 'no'
+machine_rank: 0
+main_training_function: main
+mixed_precision: fp16
+num_machines: 1
+num_processes: 2
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false

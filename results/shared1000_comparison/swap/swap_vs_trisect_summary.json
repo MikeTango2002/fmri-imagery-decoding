@@ -1,0 +1,89 @@
+{
+  "n_blocks_kept": 65,
+  "n_cells": 3120,
+  "absolute_TT": {
+    "primary_mean": 0.8165702677684294,
+    "PixCorr": 0.20198587259615386,
+    "SSIM": 0.37309530625000004,
+    "AlexNet(2)": 0.7937501258012821,
+    "AlexNet(5)": 0.837318013701923,
+    "InceptionV3": 0.8139861247596154,
+    "CLIP": 0.8212268068108974,
+    "EffNet-B": 0.744184133573718,
+    "SwAV": 0.4435142665865385
+  },
+  "arms": {
+    "BT": {
+      "absolute": {
+        "primary_mean": 0.8224651533653846,
+        "PixCorr": 0.20950453782051284,
+        "SSIM": 0.33324158429487183,
+        "AlexNet(2)": 0.8094698221153847,
+        "AlexNet(5)": 0.8533800740384615,
+        "InceptionV3": 0.8117133971153846,
+        "CLIP": 0.8152973201923076,
+        "EffNet-B": 0.7252626698717949,
+        "SwAV": 0.4331761064102564
+      },
+      "primary_mean_delta": {
+        "axis": "BT_minus_TT",
+        "metric": "primary_mean",
+        "point": 0.5894885596955131,
+        "ci_lo": 0.19721547120392652,
+        "ci_hi": 0.9826678963341346,
+        "n_clusters": 65,
+        "unit": "pp",
+        "lower_is_better": 0,
+        "arm": "BT"
+      }
+    },
+    "TB": {
+      "absolute": {
+        "primary_mean": 0.821904255048077,
+        "PixCorr": 0.2510452310897436,
+        "SSIM": 0.3325764371794872,
+        "AlexNet(2)": 0.8225817092948718,
+        "AlexNet(5)": 0.8520106112179487,
+        "InceptionV3": 0.8085956823717949,
+        "CLIP": 0.8044290173076923,
+        "EffNet-B": 0.7454697464743589,
+        "SwAV": 0.4547797657051282
+      },
+      "primary_mean_delta": {
+        "axis": "TB_minus_TT",
+        "metric": "primary_mean",
+        "point": 0.5333987279647437,
+        "ci_lo": 0.22544685326522457,
+        "ci_hi": 0.841537195663061,
+        "n_clusters": 65,
+        "unit": "pp",
+        "lower_is_better": 0,
+        "arm": "TB"
+      }
+    },
+    "BB": {
+      "absolute": {
+        "primary_mean": 0.8345280895833334,
+        "PixCorr": 0.2546404326923077,
+        "SSIM": 0.33659706474358964,
+        "AlexNet(2)": 0.8403264615384615,
+        "AlexNet(5)": 0.8665502342948718,
+        "InceptionV3": 0.8156761054487178,
+        "CLIP": 0.815559557051282,
+        "EffNet-B": 0.7245178474358975,
+        "SwAV": 0.42911237948717945
+      },
+      "primary_mean_delta": {
+        "axis": "BB_minus_TT",
+        "metric": "primary_mean",
+        "point": 1.7957821814903847,
+        "ci_lo": 1.4712539818709938,
+        "ci_hi": 2.1197779396033645,
+        "n_clusters": 65,
+        "unit": "pp",
+        "lower_is_better": 0,
+        "arm": "BB"
+      }
+    }
+  }
+}

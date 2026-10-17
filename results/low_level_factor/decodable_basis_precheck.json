@@ -1,0 +1,139 @@
+{
+  "subj01": {
+    "n_dev": 150,
+    "n_train_sub": 2000,
+    "pixcorr_control": 0.28791396337809916,
+    "ssim_control": 0.26722378524239976,
+    "arms": {
+      "64": {
+        "pixcorr_treatment": 0.3516263089255304,
+        "ssim_treatment": 0.3342336731506863,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "128": {
+        "pixcorr_treatment": 0.34751248055159123,
+        "ssim_treatment": 0.33133114936485497,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "256": {
+        "pixcorr_treatment": 0.3448219765489664,
+        "ssim_treatment": 0.32964808990699873,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      }
+    }
+  },
+  "subj02": {
+    "n_dev": 150,
+    "n_train_sub": 2000,
+    "pixcorr_control": 0.25704935111857424,
+    "ssim_control": 0.23231754157414153,
+    "arms": {
+      "64": {
+        "pixcorr_treatment": 0.307502969720711,
+        "ssim_treatment": 0.28727934684205925,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "128": {
+        "pixcorr_treatment": 0.3048197925620017,
+        "ssim_treatment": 0.28534894475789374,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "256": {
+        "pixcorr_treatment": 0.3022648021225938,
+        "ssim_treatment": 0.2841744702625235,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      }
+    }
+  },
+  "subj05": {
+    "n_dev": 150,
+    "n_train_sub": 2000,
+    "pixcorr_control": 0.21974886234369242,
+    "ssim_control": 0.19644242064993273,
+    "arms": {
+      "64": {
+        "pixcorr_treatment": 0.22803043390551883,
+        "ssim_treatment": 0.21842853046145877,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "128": {
+        "pixcorr_treatment": 0.22111131794693117,
+        "ssim_treatment": 0.21245476102076893,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "256": {
+        "pixcorr_treatment": 0.21607303322755744,
+        "ssim_treatment": 0.20877481848073348,
+        "win_pixcorr": false,
+        "win_ssim": true,
+        "win_both": false
+      }
+    }
+  },
+  "subj07": {
+    "n_dev": 150,
+    "n_train_sub": 2000,
+    "pixcorr_control": 0.21990585263337886,
+    "ssim_control": 0.2042562631378248,
+    "arms": {
+      "64": {
+        "pixcorr_treatment": 0.24684864361882367,
+        "ssim_treatment": 0.2392130214640206,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "128": {
+        "pixcorr_treatment": 0.24467843574697204,
+        "ssim_treatment": 0.2370214113515966,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      },
+      "256": {
+        "pixcorr_treatment": 0.23948256754330832,
+        "ssim_treatment": 0.2329151533978532,
+        "win_pixcorr": true,
+        "win_ssim": true,
+        "win_both": true
+      }
+    }
+  },
+  "gate": {
+    "criterion": "treatment must not lose on PixCorr AND SSIM together on >=3/4 subjects, for at least one k (decision rule fixed before the run)",
+    "per_k": {
+      "64": {
+        "n_subj_win_both_metrics": 4,
+        "n_subj": 4,
+        "proceed_to_gpu_branch": true
+      },
+      "128": {
+        "n_subj_win_both_metrics": 4,
+        "n_subj": 4,
+        "proceed_to_gpu_branch": true
+      },
+      "256": {
+        "n_subj_win_both_metrics": 3,
+        "n_subj": 4,
+        "proceed_to_gpu_branch": true
+      }
+    },
+    "proceed_to_gpu_branch": true
+  }
+}

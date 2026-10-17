@@ -1,0 +1,12 @@
+diff --git a/codes/utils/img2feat_decoded.py b/codes/utils/img2feat_decoded.py
+index e9ec31f..ff1d174 100755
+--- a/codes/utils/img2feat_decoded.py
++++ b/codes/utils/img2feat_decoded.py
+@@ -4,6 +4,7 @@ import torch
+ from transformers import CLIPProcessor, CLIPModel
+ import numpy as np
+ import torchvision
++import torchvision.models.feature_extraction  # not pulled in by `import torchvision` alone
+ from torchvision import transforms
+ from tqdm import tqdm
+ 

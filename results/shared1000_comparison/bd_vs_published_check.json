@@ -1,0 +1,58 @@
+{
+  "per_subject": {
+    "01": {
+      "PixCorr": 0.31143638589743594,
+      "SSIM": 0.3373388525641025,
+      "EffNet-B": 0.724639794871795,
+      "SwAV": 0.4189586692307692
+    },
+    "02": {
+      "PixCorr": 0.26414214102564104,
+      "SSIM": 0.33153815384615376,
+      "EffNet-B": 0.7436459999999999,
+      "SwAV": 0.4325017666666667
+    },
+    "05": {
+      "PixCorr": 0.22964311025641024,
+      "SSIM": 0.3173756051282051,
+      "EffNet-B": 0.720913337179487,
+      "SwAV": 0.42774691282051286
+    },
+    "07": {
+      "PixCorr": 0.2313542641025641,
+      "SSIM": 0.3215786333333333,
+      "EffNet-B": 0.7567092448717948,
+      "SwAV": 0.4526764935897436
+    }
+  },
+  "pooled_vs_published": {
+    "PixCorr": {
+      "measured": 0.2591439753205128,
+      "published": 0.273,
+      "delta": -0.013856024679487211,
+      "within_tolerance": true,
+      "tolerance": 0.04
+    },
+    "SSIM": {
+      "measured": 0.32695781121794865,
+      "published": 0.365,
+      "delta": -0.038042188782051345,
+      "within_tolerance": true,
+      "tolerance": 0.04
+    },
+    "EffNet-B": {
+      "measured": 0.7364770942307691,
+      "published": 0.728,
+      "delta": 0.008477094230769144,
+      "within_tolerance": true,
+      "tolerance": 0.01
+    },
+    "SwAV": {
+      "measured": 0.4329709605769231,
+      "published": 0.421,
+      "delta": 0.011970960576923095,
+      "within_tolerance": false,
+      "tolerance": 0.01
+    }
+  }
+}

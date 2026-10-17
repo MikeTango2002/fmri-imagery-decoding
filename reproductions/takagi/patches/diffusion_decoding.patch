@@ -1,0 +1,207 @@
+diff --git a/codes/diffusion_sd1/diffusion_decoding.py b/codes/diffusion_sd1/diffusion_decoding.py
+index 08182fb..c030c18 100755
+--- a/codes/diffusion_sd1/diffusion_decoding.py
++++ b/codes/diffusion_sd1/diffusion_decoding.py
+@@ -1,7 +1,7 @@
+ import h5py
+ from PIL import Image
+ import scipy.io
+-import argparse, os
++import argparse, os, random, time
+ import pandas as pd
+ import PIL
+ import torch
+@@ -55,6 +55,31 @@ def main():
+         type=int,
+         help="img idx"
+     )
++    parser.add_argument(
++        "--imgidx_end",
++        type=int,
++        default=None,
++        help="if given, process the range [imgidx, imgidx_end) inside a single "
++             "process, loading Stable Diffusion only once. Default: --imgidx only "
++             "(upstream behaviour)",
++    )
++    parser.add_argument(
++        "--skip_existing",
++        action="store_true",
++        help="skip an index whose last sample ({idx:05}_{n_iter-1:03}.png) is already "
++             "on disk. Note this is relative to --n_iter: raising n_iter makes every "
++             "index look incomplete again, which is intended",
++    )
++    parser.add_argument(
++        "--n_iter",
++        type=int,
++        default=5,
++        help="samples drawn per image. Upstream's value is 5; Kneeland et al. average "
++             "every metric over 10 (NSD-Imagery appendix A.2), so the shared1000 bridge "
++             "and NSD-Imagery both want 10. The RNG state is reset per index, so sample "
++             "n is the same noise realisation for every image and re-running with a "
++             "larger n_iter reproduces the first samples bit-identically",
++    )
+     parser.add_argument(
+         "--gpu",
+         required=True,
+@@ -85,6 +110,7 @@ def main():
+     opt = parser.parse_args()
+     seed_everything(opt.seed)
+     imgidx = opt.imgidx
++    imgidx_end = opt.imgidx_end if opt.imgidx_end is not None else imgidx + 1
+     gpu = opt.gpu
+     method = opt.method
+     subject=opt.subject
+@@ -146,70 +172,100 @@ def main():
+     t_enc = int(strength * ddim_steps)
+     print(f"target t_enc is {t_enc} steps")
+ 
+-    # Load z (Image)
+-    imgidx_te = np.where(tr_idx==0)[0][imgidx] # Extract test image index
+-    idx73k= stims_ave[imgidx_te]
+-    Image.fromarray(np.squeeze(sdataset[idx73k,:,:,:]).astype(np.uint8)).save(
+-        os.path.join(sample_path, f"{imgidx:05}_org.png"))    
+-    
++    # Decoder outputs are the same file for every index: with --imgidx_end they are
++    # read once instead of once per image (scores_c alone is ~0.22 GB).
++    scores_latent = None
++    scores_c = None
++    captions = None
+     if method in ['cvpr','text']:
+         roi_latent = 'early'
+         scores_latent = np.load(f'../../decoded/{subject}/{subject}_{roi_latent}_scores_init_latent.npy')
+-        imgarr = torch.Tensor(scores_latent[imgidx,:].reshape(4,40,40)).unsqueeze(0).to('cuda')
++    if method == 'cvpr':
++        roi_c = 'ventral'
++        scores_c = np.load(f'../../decoded/{subject}/{subject}_{roi_c}_scores_c.npy')
++    elif method in ['text','gan']:
++        captions = pd.read_csv(f'{captdir}/captions_brain.csv', sep='\t',header=None)
++
++    # Upstream seeds once per process and then samples exactly one image, so every
++    # invocation reaches this point with an identical RNG state (model instantiation
++    # consumes a deterministic number of draws). Snapshot it here and restore it at
++    # the top of each index, so a batched run draws the same noise upstream would.
++    rng_state = (torch.get_rng_state(), torch.cuda.get_rng_state(device),
++                 np.random.get_state(), random.getstate())
+ 
+-        # Generate image from Z
+-        precision_scope = autocast if precision == "autocast" else nullcontext
++    for imgidx in range(opt.imgidx, imgidx_end):
++        last_sample = os.path.join(sample_path, f"{imgidx:05}_{n_iter - 1:03}.png")
++        if opt.skip_existing and os.path.isfile(last_sample):
++            print(f"[{imgidx:05}] already done, skipping", flush=True)
++            continue
++        t_img = time.time()
++
++        torch.set_rng_state(rng_state[0])
++        torch.cuda.set_rng_state(rng_state[1], device)
++        np.random.set_state(rng_state[2])
++        random.setstate(rng_state[3])
++
++        # Load z (Image)
++        imgidx_te = np.where(tr_idx==0)[0][imgidx] # Extract test image index
++        idx73k= stims_ave[imgidx_te]
++        Image.fromarray(np.squeeze(sdataset[idx73k,:,:,:]).astype(np.uint8)).save(
++            os.path.join(sample_path, f"{imgidx:05}_org.png"))
++
++        if method in ['cvpr','text']:
++            imgarr = torch.Tensor(scores_latent[imgidx,:].reshape(4,40,40)).unsqueeze(0).to('cuda')
++
++            # Generate image from Z
++            precision_scope = autocast if precision == "autocast" else nullcontext
++            with torch.no_grad():
++                with precision_scope("cuda"):
++                    with model.ema_scope():
++                        x_samples = model.decode_first_stage(imgarr)
++                        x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
++
++                        for x_sample in x_samples:
++                            x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
++            im = Image.fromarray(x_sample.astype(np.uint8)).resize((512,512))
++            im = np.array(im)
++
++        elif method == 'gan':
++            ganpath = f'{gandir}/recon_image_normalized-VGG19-fc8-{subject}-streams-{imgidx:06}.tiff'
++            im = Image.open(ganpath).resize((512,512))
++            im = np.array(im)
++
++        init_image = load_img_from_arr(im).to('cuda')
++        init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent space
++
++        # Load c (Semantics)
++        if method == 'cvpr':
++            carr = scores_c[imgidx,:].reshape(77,768)
++            c = torch.Tensor(carr).unsqueeze(0).to('cuda')
++        elif method in ['text','gan']:
++            c = model.get_learned_conditioning(captions.iloc[imgidx][0]).to('cuda')
++
++        # Generate image from Z (image) + C (semantics)
++        base_count = 0
+         with torch.no_grad():
+             with precision_scope("cuda"):
+                 with model.ema_scope():
+-                    x_samples = model.decode_first_stage(imgarr)
+-                    x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
++                    for n in trange(n_iter, desc="Sampling"):
++                        uc = model.get_learned_conditioning(batch_size * [""])
+ 
+-                    for x_sample in x_samples:
+-                        x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+-        im = Image.fromarray(x_sample.astype(np.uint8)).resize((512,512))
+-        im = np.array(im)
++                        # encode (scaled latent)
++                        z_enc = sampler.stochastic_encode(init_latent, torch.tensor([t_enc]*batch_size).to(device))
++                        # decode it
++                        samples = sampler.decode(z_enc, c, t_enc, unconditional_guidance_scale=scale,
++                                                unconditional_conditioning=uc,)
+ 
+-    elif method == 'gan':
+-        ganpath = f'{gandir}/recon_image_normalized-VGG19-fc8-{subject}-streams-{imgidx:06}.tiff'
+-        im = Image.open(ganpath).resize((512,512))
+-        im = np.array(im)
++                        x_samples = model.decode_first_stage(samples)
++                        x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+ 
+-    init_image = load_img_from_arr(im).to('cuda')
+-    init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent space
++                        for x_sample in x_samples:
++                            x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
++                        Image.fromarray(x_sample.astype(np.uint8)).save(
++                            os.path.join(sample_path, f"{imgidx:05}_{base_count:03}.png"))
++                        base_count += 1
+ 
+-    # Load c (Semantics)
+-    if method == 'cvpr':
+-        roi_c = 'ventral'
+-        scores_c = np.load(f'../../decoded/{subject}/{subject}_{roi_c}_scores_c.npy')
+-        carr = scores_c[imgidx,:].reshape(77,768)
+-        c = torch.Tensor(carr).unsqueeze(0).to('cuda')
+-    elif method in ['text','gan']:
+-        captions = pd.read_csv(f'{captdir}/captions_brain.csv', sep='\t',header=None)
+-        c = model.get_learned_conditioning(captions.iloc[imgidx][0]).to('cuda')
+-
+-    # Generate image from Z (image) + C (semantics)
+-    base_count = 0
+-    with torch.no_grad():
+-        with precision_scope("cuda"):
+-            with model.ema_scope():
+-                for n in trange(n_iter, desc="Sampling"):
+-                    uc = model.get_learned_conditioning(batch_size * [""])
+-
+-                    # encode (scaled latent)
+-                    z_enc = sampler.stochastic_encode(init_latent, torch.tensor([t_enc]*batch_size).to(device))
+-                    # decode it
+-                    samples = sampler.decode(z_enc, c, t_enc, unconditional_guidance_scale=scale,
+-                                            unconditional_conditioning=uc,)
+-
+-                    x_samples = model.decode_first_stage(samples)
+-                    x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+-
+-                    for x_sample in x_samples:
+-                        x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+-                    Image.fromarray(x_sample.astype(np.uint8)).save(
+-                        os.path.join(sample_path, f"{imgidx:05}_{base_count:03}.png"))    
+-                    base_count += 1
++        print(f"[{imgidx:05}] done in {time.time() - t_img:.1f}s", flush=True)
+ 
+ 
+ if __name__ == "__main__":

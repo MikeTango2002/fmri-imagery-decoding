@@ -1,0 +1,133 @@
+diff --git a/src/utils.py b/src/utils.py
+index 289aaf4..51bbf5b 100755
+--- a/src/utils.py
++++ b/src/utils.py
+@@ -19,6 +19,7 @@ import socket
+ from clip_retrieval.clip_client import ClipClient
+ import time 
+ import braceexpand
++from concurrent.futures import ThreadPoolExecutor
+ from models import Clipper,OpenClipper
+ 
+ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+@@ -245,7 +246,8 @@ def get_dataloaders(
+     
+     train_url = list(braceexpand.braceexpand(train_url))
+     val_url = list(braceexpand.braceexpand(val_url))
+-    if not os.path.exists(train_url[0]):
++    cached_first = os.path.join(cache_dir, os.path.basename(train_url[0]))
++    if not os.path.exists(train_url[0]) and not os.path.exists(cached_first):
+         # we will default to downloading from huggingface urls if data_path does not exist
+         print("downloading NSD from huggingface...")
+         os.makedirs(cache_dir,exist_ok=True)
+@@ -369,6 +371,14 @@ def query_laion(text=None, emb=None, num=8, indice_name="laion5B-L-14", groundtr
+         groundtruth=groundtruth[:3].cpu()
+     
+     result = None; res_length = 0
++    # ClipClient.query() posts with no timeout, so a service that accepts the
++    # connection and never answers blocks the run forever -- and the bare except
++    # below never fires, because nothing is raised. urllib3 falls back to the
++    # process-wide socket default when no timeout is passed, so bound it here.
++    # (Upstream got this by accident: socket.setdefaulttimeout(5) inside the old
++    # sequential download loop leaked into every later kNN query. The very first
++    # query was unprotected, which is exactly where a dead service hangs.)
++    socket.setdefaulttimeout(int(os.environ.get("LAION_KNN_TIMEOUT", 30)))
+     try:
+         client = ClipClient(
+             url="https://knn.laion.ai/knn-service",
+@@ -402,45 +412,57 @@ def query_laion(text=None, emb=None, num=8, indice_name="laion5B-L-14", groundtr
+             retrieved_images = np.ones((16, 3, 512, 512))
+             return retrieved_images
+     
+-    retrieved_images = None
+-    tries = 0
+-    for res in result:
+-        if tries>=num:
+-            break
+-        try:
+-            if verbose: print(tries, "requesting...")
+-            # Define a User-Agent header to mimic a web browser, then load the image
+-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
+-            req = Request(res["url"], headers=headers) # Create a Request object with the URL and headers
+-            socket.setdefaulttimeout(5) # Set a global timeout for socket operations (in seconds)
+-            try:
+-                if verbose: print('socket')
+-                image_data = urlopen(req).read()
+-            except socket.timeout:
+-                raise Exception("Request timed out after 5 seconds")
+-            img = Image.open(io.BytesIO(image_data))
+-            # plt.imshow(img); plt.show()
+-            img = transforms.ToTensor()(img)
+-            if img.shape[0] == 1: #ensure not grayscale
+-                img = img.repeat(3,1,1)
+-            img = img[:3]
+-            if groundtruth is not None:
+-                if _check_whether_images_are_identical(img, groundtruth):
+-                    print("matched exact neighbor!")
++    # Candidate fetching, parallelized but rank-order preserving.
++    #
++    # Upstream downloaded the candidate URLs one at a time behind a 5s socket
++    # timeout. LAION-5B suffers heavy link rot, so most of the wall time went
++    # into waiting on dead URLs: ~30-90s per sample, with the GPU idle.
++    # Here a window of candidates is fetched concurrently, but the `num` kept
++    # are still selected in LAION rank order -- not "the first ones to arrive" --
++    # so the images finally returned are the ones the sequential code would
++    # have returned. The candidate URLs point at third-party web hosts, not at
++    # knn.laion.ai, so this concurrency does not add load to LAION's service.
++    def _fetch_one(res):
++        # Define a User-Agent header to mimic a web browser, then load the image
++        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
++        req = Request(res["url"], headers=headers) # Create a Request object with the URL and headers
++        # Per-call timeout: thread-safe, unlike the global socket.setdefaulttimeout
++        image_data = urlopen(req, timeout=5).read()
++        img = transforms.ToTensor()(Image.open(io.BytesIO(image_data)))
++        if img.shape[0] == 1: #ensure not grayscale
++            img = img.repeat(3,1,1)
++        img = img[:3]
++        if indice_name == "laion5B-L-14":
++            best_cropped = laion_transform(img)
++        else:
++            best_cropped = laion_transform2(img)
++        return img, best_cropped
++
++    picked = []
++    window = int(os.environ.get("LAION_FETCH_WORKERS", 48))
++    with ThreadPoolExecutor(max_workers=window) as pool:
++        start = 0
++        while len(picked) < num and start < len(result):
++            futures = [pool.submit(_fetch_one, res) for res in result[start:start+window]]
++            for fut in futures: # submission order == LAION rank order
++                if len(picked) >= num:
++                    break
++                try:
++                    img, best_cropped = fut.result()
++                except Exception:
+                     continue
+-            if indice_name == "laion5B-L-14":
+-                best_cropped = laion_transform(img)
+-            else:
+-                best_cropped = laion_transform2(img)
+-            if verbose: print(best_cropped.shape)
+-            if retrieved_images is None:
+-                retrieved_images = best_cropped[None]
+-            else:
+-                retrieved_images = np.vstack((retrieved_images, best_cropped[None]))
+-            tries += 1
+-            if verbose: print('retrieved_images',retrieved_images.shape)
+-        except:
+-            time.sleep(np.random.rand())
++                if groundtruth is not None:
++                    if _check_whether_images_are_identical(img, groundtruth):
++                        print("matched exact neighbor!")
++                        continue
++                picked.append(best_cropped)
++            start += window
++
++    if not picked:
++        # Same fallback as a failed kNN query: never crash the outer loop.
++        print("Query failed! Outputting blank retrieved images to prevent crashing.")
++        return np.ones((num, 3, 512, 512))
++    retrieved_images = np.stack([np.asarray(p) for p in picked])
+     if verbose: print('final retrieved_images',retrieved_images.shape)
+     return retrieved_images
+ 

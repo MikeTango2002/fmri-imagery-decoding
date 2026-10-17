@@ -1,0 +1,57 @@
+# Frozen environment of iCNN on the training server: `uv pip freeze` on the only venv of this
+# model (`icnn/.venv`, Python 3.10.13, built by `scripts/setup_venv.sh`) that decoded the VGG19
+# features and ran the reconstructions of the thesis. There is no other venv: the metrics of
+# benchmark B run in the environment of `evaluation/`, not here.
+# Read it, do not install it. PyTorch is 2.0.1 built for CUDA 11.8 (the GPUs of the server are
+# sm_89 and need a CUDA 11.8+ build); numpy is held at 1.26.4 for the 1.x ABI that torch 2.0.1
+# needs. `bdpy` (0.26) and `fastl2lir` (0.11) come from PyPI.
+antlr4-python3-runtime==4.9.3
+bdpy==0.26
+certifi==2022.12.7
+charset-normalizer==2.1.1
+cmake==3.25.0
+contourpy==1.3.2
+cycler==0.12.1
+fastl2lir==0.11
+filelock==3.29.0
+fonttools==4.63.0
+h5py==3.16.0
+hdf5storage==0.2.2
+hydra-core==1.3.5
+idna==3.4
+imageio==2.37.4
+importlib-resources==7.1.0
+jinja2==3.1.6
+joblib==1.5.3
+kiwisolver==1.5.0
+lazy-loader==0.5
+lit==15.0.7
+markupsafe==3.0.3
+matplotlib==3.10.9
+mpmath==1.3.0
+networkx==3.4.2
+nibabel==5.4.2
+numpy==1.26.4
+omegaconf==2.3.1
+packaging==26.3
+pandas==2.3.3
+pillow==12.2.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+pyyaml==6.0.3
+requests==2.28.1
+scikit-image==0.25.2
+scikit-learn==1.7.2
+scipy==1.15.3
+six==1.17.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+tifffile==2025.5.10
+torch==2.0.1+cu118
+torchvision==0.15.2+cu118
+tqdm==4.70.0
+triton==2.0.0
+typing-extensions==4.15.0
+tzdata==2026.3
+urllib3==1.26.13

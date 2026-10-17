@@ -1,0 +1,146 @@
+[
+  {
+    "variant": "gain",
+    "domain": "img_vision",
+    "branch": "z_sem_img",
+    "delta": -0.0008625443768374205,
+    "ci_lo": -0.0027217145717666766,
+    "ci_hi": 0.0011167730017067694
+  },
+  {
+    "variant": "gain",
+    "domain": "img_vision",
+    "branch": "z_struct",
+    "delta": -0.0014672401954678486,
+    "ci_lo": -0.005388881942781294,
+    "ci_hi": 0.0029520252578410684
+  },
+  {
+    "variant": "gain",
+    "domain": "img_vision",
+    "branch": "z_low",
+    "delta": -1.4503106127962594e-05,
+    "ci_lo": -0.0006171493274510304,
+    "ci_hi": 0.0006560443639952791
+  },
+  {
+    "variant": "gain",
+    "domain": "img_imagery",
+    "branch": "z_sem_img",
+    "delta": 0.0006170109049969663,
+    "ci_lo": -0.0011023169946753149,
+    "ci_hi": 0.002192859292144202
+  },
+  {
+    "variant": "gain",
+    "domain": "img_imagery",
+    "branch": "z_struct",
+    "delta": 0.0021555714244464595,
+    "ci_lo": -0.0018581199755307951,
+    "ci_hi": 0.006362547837112535
+  },
+  {
+    "variant": "gain",
+    "domain": "img_imagery",
+    "branch": "z_low",
+    "delta": 6.411958775032866e-05,
+    "ci_lo": -0.0006492904553089755,
+    "ci_hi": 0.0008960706882951788
+  },
+  {
+    "variant": "diag",
+    "domain": "img_vision",
+    "branch": "z_sem_img",
+    "delta": -0.001706922894260076,
+    "ci_lo": -0.007096748748070292,
+    "ci_hi": 0.003554322903267084
+  },
+  {
+    "variant": "diag",
+    "domain": "img_vision",
+    "branch": "z_struct",
+    "delta": -0.007230040182882037,
+    "ci_lo": -0.015195247399932289,
+    "ci_hi": 0.001844175491809589
+  },
+  {
+    "variant": "diag",
+    "domain": "img_vision",
+    "branch": "z_low",
+    "delta": -0.0011985336870955023,
+    "ci_lo": -0.002950808036625157,
+    "ci_hi": 0.0004699959365535855
+  },
+  {
+    "variant": "diag",
+    "domain": "img_imagery",
+    "branch": "z_sem_img",
+    "delta": 0.0011566834752685376,
+    "ci_lo": -0.002701429668999864,
+    "ci_hi": 0.005082010724049182
+  },
+  {
+    "variant": "diag",
+    "domain": "img_imagery",
+    "branch": "z_struct",
+    "delta": 0.005305664155611564,
+    "ci_lo": -0.004355156151332392,
+    "ci_hi": 0.014439527338829042
+  },
+  {
+    "variant": "diag",
+    "domain": "img_imagery",
+    "branch": "z_low",
+    "delta": -0.0009438947721406247,
+    "ci_lo": -0.0027738325509976255,
+    "ci_hi": 0.0009547433801442223
+  },
+  {
+    "variant": "coral",
+    "domain": "img_vision",
+    "branch": "z_sem_img",
+    "delta": 0.00015936357519329378,
+    "ci_lo": -0.007456127126429993,
+    "ci_hi": 0.007389375102225826
+  },
+  {
+    "variant": "coral",
+    "domain": "img_vision",
+    "branch": "z_struct",
+    "delta": -0.008773515439856041,
+    "ci_lo": -0.016765933782392883,
+    "ci_hi": -0.0019232396674504699
+  },
+  {
+    "variant": "coral",
+    "domain": "img_vision",
+    "branch": "z_low",
+    "delta": -0.0008631713768271183,
+    "ci_lo": -0.004654200190256496,
+    "ci_hi": 0.0020486109565488373
+  },
+  {
+    "variant": "coral",
+    "domain": "img_imagery",
+    "branch": "z_sem_img",
+    "delta": 0.004209972910217537,
+    "ci_lo": -0.0023710186998840833,
+    "ci_hi": 0.010304011069881427
+  },
+  {
+    "variant": "coral",
+    "domain": "img_imagery",
+    "branch": "z_struct",
+    "delta": 0.007869695288283669,
+    "ci_lo": -0.004620864722478816,
+    "ci_hi": 0.01842596434981464
+  },
+  {
+    "variant": "coral",
+    "domain": "img_imagery",
+    "branch": "z_low",
+    "delta": -0.0012125562077111886,
+    "ci_lo": -0.004219814189554614,
+    "ci_hi": 0.0015216445494351867
+  }
+]

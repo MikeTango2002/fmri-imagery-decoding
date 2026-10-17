@@ -1,0 +1,49 @@
+diff --git a/codes/caption/BLIP/img2feat_blip.py b/codes/caption/BLIP/img2feat_blip.py
+index 87f444a..c2981f2 100755
+--- a/codes/caption/BLIP/img2feat_blip.py
++++ b/codes/caption/BLIP/img2feat_blip.py
+@@ -4,7 +4,13 @@ import torch
+ from torchvision import transforms
+ from models.blip import blip_decoder
+ import sys
+-sys.path.append("../../util/")
++# Resolved from the file location, not the CWD. Upstream used sys.path.append("../../util/")
++# (the folder is called utils) and NSDAccess('../../../nsd/'), which only work when the script
++# is launched from inside codes/caption/BLIP; from anywhere else it dies with a misleading
++# "ModuleNotFoundError: No module named 'nsd_access'". The same __file__-based root is used
++# below for the BLIP checkpoint.
++TAKAGI_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
++sys.path.append(os.path.join(TAKAGI_ROOT, 'codes', 'utils'))
+ from nsd_access.nsda import NSDAccess
+ from tqdm import tqdm
+ import numpy as np
+@@ -26,15 +32,26 @@ def main():
+     nimage = 73000
+     image_size = 240
+     model_url = "https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_base_capfilt_large.pth"
++    model_local = os.path.join(TAKAGI_ROOT, 'cache', 'blip', 'model_base_capfilt_large.pth')
++    if not os.path.exists(model_local):
++        os.makedirs(os.path.dirname(model_local), exist_ok=True)
++        import urllib.request
++        print(f"Downloading BLIP checkpoint to {model_local} ...")
++        urllib.request.urlretrieve(model_url, model_local)
+     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
+-    model = blip_decoder(pretrained=model_url, image_size=image_size, vit="base")
++    # med_config defaults to the CWD-relative 'configs/med_config.json' (models/blip.py:80);
++    # pass it explicitly so the script does not depend on the CWD here either. blip_decoder
++    # forwards **kwargs to BLIP_Decoder, so no upstream BLIP file is touched.
++    med_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'configs', 'med_config.json')
++    model = blip_decoder(pretrained=model_local, image_size=image_size, vit="base",
++                         med_config=med_config)
+     model.eval()
+     model = model.to(device)
+-    savedir = f'../../../nsdfeat/blip/'
++    savedir = os.path.join(TAKAGI_ROOT, 'nsdfeat', 'blip')
+     os.makedirs(savedir, exist_ok=True)
+ 
+     # Make feature
+-    nsda = NSDAccess('../../../nsd/')
++    nsda = NSDAccess(os.path.join(TAKAGI_ROOT, 'nsd'))
+     for s in tqdm(range(nimage)):
+         img_arr = nsda.read_images(s)
+         image = Image.fromarray(img_arr).convert("RGB").resize((image_size,image_size), resample=Image.LANCZOS)

@@ -1,0 +1,35 @@
+{
+  "winner": {
+    "label": "S1K_H4REL_subj05_s0.85_m0.6",
+    "strength": 0.85,
+    "mixing": 0.6,
+    "n_rows": 3984,
+    "primary_mean": 0.8321126617720757,
+    "PixCorr": 0.20296430848393568,
+    "SSIM": 0.36929475451807336,
+    "AlexNet(2)": 0.7970519738955689,
+    "AlexNet(5)": 0.8519990283634408,
+    "InceptionV3": 0.836003214106414,
+    "CLIP": 0.843396430722879,
+    "EffNet-B": 0.7117249397590354,
+    "SwAV": 0.43346250803212844
+  },
+  "grid": [
+    {
+      "label": "S1K_H4REL_subj05_s0.85_m0.6",
+      "strength": 0.85,
+      "mixing": 0.6,
+      "n_rows": 3984,
+      "primary_mean": 0.8321126617720757,
+      "PixCorr": 0.20296430848393568,
+      "SSIM": 0.36929475451807336,
+      "AlexNet(2)": 0.7970519738955689,
+      "AlexNet(5)": 0.8519990283634408,
+      "InceptionV3": 0.836003214106414,
+      "CLIP": 0.843396430722879,
+      "EffNet-B": 0.7117249397590354,
+      "SwAV": 0.43346250803212844
+    }
+  ],
+  "selection_criterion": "argmax mean(AlexNet(2), AlexNet(5), InceptionV3, CLIP), rule fixed before the run"
+}

@@ -1,0 +1,13 @@
+diff --git a/src/Reconstructions.py b/src/Reconstructions.py
+index 2d6df5e..9184eac 100644
+--- a/src/Reconstructions.py
++++ b/src/Reconstructions.py
+@@ -418,7 +418,7 @@ all_brain_recons = all_brain_recons.view(-1,3,imsize,imsize)
+ print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+ 
+ if saving:
+-    torch.save(all_images,f'all_images.pt')
++    torch.save(all_images,f'all_images_subj0{subj}.pt')
+     torch.save(all_brain_recons,f'{model_name}_recons_img2img{img2img_strength}_{recons_per_sample}samples.pt')
+ print(f'recon_path: {model_name}_recons_img2img{img2img_strength}_{recons_per_sample}samples')
+ 

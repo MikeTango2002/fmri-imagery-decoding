@@ -1,0 +1,50 @@
+{
+  "z_sem_img": [
+    {
+      "variant": "gamma1",
+      "mean_cos_diag": 0.2957602790104363,
+      "n_subj": 4
+    },
+    {
+      "variant": "gamma2",
+      "mean_cos_diag": 0.2673384932124677,
+      "n_subj": 4
+    }
+  ],
+  "z_sem_txt": [
+    {
+      "variant": "gamma1",
+      "mean_cos_diag": 0.43403969270423487,
+      "n_subj": 4
+    },
+    {
+      "variant": "gamma2",
+      "mean_cos_diag": 0.42771378967672913,
+      "n_subj": 4
+    }
+  ],
+  "z_struct": [
+    {
+      "variant": "gamma1",
+      "mean_cos_diag": 0.510845764733131,
+      "n_subj": 4
+    },
+    {
+      "variant": "gamma2",
+      "mean_cos_diag": 0.4951846786407624,
+      "n_subj": 4
+    }
+  ],
+  "z_low": [
+    {
+      "variant": "gamma1",
+      "mean_cos_diag": 0.07286148894226938,
+      "n_subj": 4
+    },
+    {
+      "variant": "gamma1_dewhiten",
+      "mean_cos_diag": 0.07153518453373985,
+      "n_subj": 4
+    }
+  ]
+}

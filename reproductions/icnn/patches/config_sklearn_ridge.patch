@@ -1,0 +1,111 @@
+diff --git a/config/deeprecon_sklearn_ridge_alpha100_vgg19_allunits.yaml b/config/deeprecon_sklearn_ridge_alpha100_vgg19_allunits.yaml
+index 9358c71..818c7a4 100644
+--- a/config/deeprecon_sklearn_ridge_alpha100_vgg19_allunits.yaml
++++ b/config/deeprecon_sklearn_ridge_alpha100_vgg19_allunits.yaml
+@@ -8,14 +8,14 @@ decoder:
+     chunk_axis: 1
+ 
+   fmri:
+-    name: ImageNetTraining_fmriprep_volume_native
++    name: ImageNetTraining_fmriprep_volume_native_vc
+     subjects:
+-      #- name: sub-01
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-01_${decoder.fmri.name}.h5
+-      #- name: sub-02
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-02_${decoder.fmri.name}.h5
++      - name: sub-01
++        paths:
++          - ./data/fmri/Deeprecon/sub-01_${decoder.fmri.name}.h5
++      - name: sub-02
++        paths:
++          - ./data/fmri/Deeprecon/sub-02_${decoder.fmri.name}.h5
+       - name: sub-03
+         paths:
+           - ./data/fmri/Deeprecon/sub-03_${decoder.fmri.name}.h5
+@@ -36,23 +36,13 @@ decoder:
+     name: caffe/VGG19
+     paths:
+       - ./data/features/ImageNetTraining/${decoder.features.name}
++    # Deliberately not the 19 layers of the fastl2lir config. sklearn Ridge stores a dense
++    # coef_ of shape (n_unit, n_voxel): conv1_1 alone would be 3.21M x 15316 x 4 B = 197 GB
++    # per subject, and all 19 layers 910 TB.
++    # conv5_4 + fc6/7/8 take 6.7 GB per subject and still give one conv point for the
++    # fastl2lir-vs-sklearn comparison (Section 4.3.5; Kneeland et al., Appendix A.6).
+     layers:
+-      #- conv1_1
+-      #- conv1_2
+-      #- conv2_1
+-      #- conv2_2
+-      #- conv3_1
+-      #- conv3_2
+-      #- conv3_3
+-      #- conv3_4
+-      #- conv4_1
+-      #- conv4_2
+-      #- conv4_3
+-      #- conv4_4
+-      #- conv5_1
+-      #- conv5_2
+-      #- conv5_3
+-      #- conv5_4
++      - conv5_4
+       - fc6
+       - fc7
+       - fc8
+@@ -68,14 +58,14 @@ decoded_feature:
+     path: ./data/feature_decoders/ImageNetTraining/${decoder.name}/${decoder.features.name}
+  
+   fmri:
+-    name: ImageNetTest_fmriprep_volume_native
++    name: ImageNetTest_fmriprep_volume_native_vc
+     subjects:
+-      #- name: sub-01
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-01_${decoded_feature.fmri.name}.h5
+-      #- name: sub-02
+-      #  paths:
+-      #    - ./data/fmri/Deeprecon/sub-02_${decoded_feature.fmri.name}.h5
++      - name: sub-01
++        paths:
++          - ./data/fmri/Deeprecon/sub-01_${decoded_feature.fmri.name}.h5
++      - name: sub-02
++        paths:
++          - ./data/fmri/Deeprecon/sub-02_${decoded_feature.fmri.name}.h5
+       - name: sub-03
+         paths:
+           - ./data/fmri/Deeprecon/sub-03_${decoded_feature.fmri.name}.h5
+@@ -91,29 +81,15 @@ decoded_feature:
+       #- {name: HVC, select: ROI_HVC = 1}
+       - {name: VC,  select: ROI_VC = 1}
+     label_key: stimulus_name
+-    exclude_labels:
++    exclude_labels: []
+ 
+   features:
+     name: caffe/VGG19
+     paths:
+       - ./data/features/ImageNetTest/${decoded_feature.features.name}
++    # Must mirror decoder.features.layers exactly, or you train 4 layers and predict 19.
+     layers:
+-      #- conv1_1
+-      #- conv1_2
+-      #- conv2_1
+-      #- conv2_2
+-      #- conv3_1
+-      #- conv3_2
+-      #- conv3_3
+-      #- conv3_4
+-      #- conv4_1
+-      #- conv4_2
+-      #- conv4_3
+-      #- conv4_4
+-      #- conv5_1
+-      #- conv5_2
+-      #- conv5_3
+-      #- conv5_4
++      - conv5_4
+       - fc6
+       - fc7
+       - fc8

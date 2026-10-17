@@ -1,0 +1,71 @@
+{
+  "n_blocks_kept": 65,
+  "n_cells": 3120,
+  "ci_widening_vs_83": 1.1300102109817756,
+  "mapping_check": {
+    "test": "rank-1 identification of the blockset image inside BD's own 982-image test set",
+    "n": 60,
+    "pool": 982,
+    "rank1": 60,
+    "worst_rank": 1,
+    "rho_min": 0.89176204106723,
+    "rho_mean": 0.9790088171652852,
+    "best_distractor_max": 0.7486722013247344,
+    "note": "the first, miscalibrated criterion (min rho >= 0.95, control <= 0.5) failed at 0.892/0.519 on a mapping this test then identified 100% at rank 1"
+  },
+  "absolute_trisect": {
+    "primary_mean": 0.8224851859575321,
+    "PixCorr": 0.22401419639423076,
+    "SSIM": 0.37652588533653847,
+    "AlexNet(2)": 0.812084916826923,
+    "AlexNet(5)": 0.8538608439903846,
+    "InceptionV3": 0.8092075703525641,
+    "CLIP": 0.8147874126602564,
+    "EffNet-B": 0.7611497801282052,
+    "SwAV": 0.45942442780448717
+  },
+  "absolute_brain_diffuser": {
+    "primary_mean": 0.842074708974359,
+    "PixCorr": 0.2649086080128205,
+    "SSIM": 0.36736054903846155,
+    "AlexNet(2)": 0.8511364868589745,
+    "AlexNet(5)": 0.8761073394230771,
+    "InceptionV3": 0.8187355467948718,
+    "CLIP": 0.8223194628205128,
+    "EffNet-B": 0.739798032371795,
+    "SwAV": 0.4281631762820513
+  },
+  "ordering_test": {
+    "AlexNet(2)": {
+      "delta_s1k": -3.9051570032051286,
+      "ci": [
+        -4.439120952123397,
+        -3.3748538010817306
+      ],
+      "delta_vision_F6": -9.64,
+      "delta_imagery_F6": -3.03,
+      "verdict": "not orderable"
+    },
+    "AlexNet(5)": {
+      "delta_s1k": -2.2246495432692313,
+      "ci": [
+        -2.6048940755208334,
+        -1.8574981480368598
+      ],
+      "delta_vision_F6": -7.2,
+      "delta_imagery_F6": -5.13,
+      "verdict": "REFUTED"
+    }
+  },
+  "generation_floor": {
+    "primary_mean": 0.23201651802884576,
+    "PixCorr": 0.002682651526442308,
+    "SSIM": 0.0009147435817307698,
+    "AlexNet(2)": 0.7080415877403845,
+    "AlexNet(5)": 0.44289025761217954,
+    "InceptionV3": 0.5900353369391025,
+    "CLIP": 0.5215624687500001,
+    "EffNet-B": 0.0028236058293269212,
+    "SwAV": 0.0022560900320512806
+  }
+}

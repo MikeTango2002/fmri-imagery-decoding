@@ -1,0 +1,21 @@
+diff --git a/codes/caption/BLIP/decode_captions.py b/codes/caption/BLIP/decode_captions.py
+index 15dce8b..903333e 100755
+--- a/codes/caption/BLIP/decode_captions.py
++++ b/codes/caption/BLIP/decode_captions.py
+@@ -68,8 +68,15 @@ def main():
+ 
+     # Model Load
+     model_url = "https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_base_capfilt_large.pth"
++    takagi_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
++    model_local = os.path.join(takagi_root, 'cache', 'blip', 'model_base_capfilt_large.pth')
++    if not os.path.exists(model_local):
++        os.makedirs(os.path.dirname(model_local), exist_ok=True)
++        import urllib.request
++        print(f"Downloading BLIP checkpoint to {model_local} ...")
++        urllib.request.urlretrieve(model_url, model_local)
+     device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
+-    model_decoder = blip_decoder(pretrained=model_url, image_size=image_size, vit="base")
++    model_decoder = blip_decoder(pretrained=model_local, image_size=image_size, vit="base")
+     model_decoder.eval()
+     model_decoder = model_decoder.to(device)
+ 
